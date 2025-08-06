@@ -98,7 +98,7 @@ export function shouldConsiderArgListsAsDifferent(argsA, argsB) {
 }
 
 class VNode {
-  constructor(type, tag, ...args) {
+  constructor(type, tag, args) {
     this.type = type;
     this.tag = tag;
     this.args = args;
@@ -115,19 +115,19 @@ class VNode {
   }
 }
 
-function alias(f) {
-  return (...args) => new VNode(ALIAS_NODE, f, ...args);
+export function alias(f) {
+  return (...args) => new VNode(ALIAS_NODE, f, args);
 }
 
-function special(o) {
-  return (...args) => new VNode(SPECIAL_NODE, o, ...args);
+export function special(o) {
+  return (...args) => new VNode(SPECIAL_NODE, o, args);
 }
 
-function h(tag, props, ...children) {
+export function h(tag, props, ...children) {
   return new VNode(ELEMENT_NODE, tag, [props ?? EMPTY_OBJECT, ...children]);
 }
 
-function o(tag, props) {
+export function o(tag, props) {
   return new VNode(OPAQUE_NODE, tag, [props ?? EMPTY_OBJECT]);
 }
 
@@ -201,59 +201,108 @@ function reconcileElementClasses(target, oldClasses, newClasses) {
 
 function reconcileElementProps(target, props) {
   const nodeState = target[NODE_STATE];
-  const currentProps = nodeState?.vdom.props;
+  const currentProps = nodeState?.vdom.args[0] ?? EMPTY_OBJECT;
   const originalProps = nodeState?.originalProps;
 
-  for (const name in props) {
-    const newValue = props[name];
-    const oldValue = currentProps[name];
+  if (nodeState.fresh) {
+    for (const name in props) {
+      const newValue = props[name];
 
-    if (newValue === oldValue) {
-      continue;
-    }
-
-    switch(name) {
-      case 'styling':
-        if (typeof value !== 'object') {
-          throw new Error('invalid value for styling prop');
-        }
-        reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-        break;
-      case 'classes':
-        if (typeof newValue !== 'object' || typeof newValue?.[Symbol.iterator] !== 'function') {
-          throw new Error('invalid value for classes prop');
-        }
-        {
-          reconcileElementClasses(target, oldValue ?? EMPTY_ARRAY, newValue ?? EMPTY_ARRAY);
-        }
-        break;
-      case 'attrs':
-        if (typeof newValue !== 'object') {
-          throw new Error('invalid value for attrs prop');
-        }
-        reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-        break;
-      case 'dataset':
-        if (typeof newValue !== 'object') {
-          throw new Error('invalid value for dataset prop');
-        }
-        reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-        break;
-      default:
-        if (newValue === undefined) {
-          if (name in originalProps) {
-            target[name] = originalProps[name];
+      switch(name) {
+        case 'styling':
+          if (typeof value !== 'object') {
+            throw new Error('invalid value for styling prop');
+          }
+          reconcileElementStyling(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        case 'classes':
+          if (typeof newValue !== 'object' || typeof newValue?.[Symbol.iterator] !== 'function') {
+            throw new Error('invalid value for classes prop');
+          }
+          {
+            reconcileElementClasses(target, EMPTY_ARRAY, newValue ?? EMPTY_ARRAY);
           }
           break;
-        }
+        case 'attrs':
+          if (typeof newValue !== 'object') {
+            throw new Error('invalid value for attrs prop');
+          }
+          reconcileElementAttributes(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        case 'dataset':
+          if (typeof newValue !== 'object') {
+            throw new Error('invalid value for dataset prop');
+          }
+          reconcileElementDataset(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        default:
+          if (newValue === undefined) {
+            if (name in originalProps) {
+              target[name] = originalProps[name];
+            }
+            break;
+          }
 
-        if (!(name in originalProps)) {
-          originalProps[name] = target[name];
-        }
-        target[name] = newValue;
-        break;
+          if (!(name in originalProps)) {
+            originalProps[name] = target[name];
+          }
+          target[name] = newValue;
+          break;
+      }
+    }
+  } else {
+    for (const name in props) {
+      const newValue = props[name];
+      const oldValue = currentProps[name];
+
+      if (newValue === oldValue) {
+        continue;
+      }
+
+      switch(name) {
+        case 'styling':
+          if (typeof value !== 'object') {
+            throw new Error('invalid value for styling prop');
+          }
+          reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        case 'classes':
+          if (typeof newValue !== 'object' || typeof newValue?.[Symbol.iterator] !== 'function') {
+            throw new Error('invalid value for classes prop');
+          }
+          {
+            reconcileElementClasses(target, oldValue ?? EMPTY_ARRAY, newValue ?? EMPTY_ARRAY);
+          }
+          break;
+        case 'attrs':
+          if (typeof newValue !== 'object') {
+            throw new Error('invalid value for attrs prop');
+          }
+          reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        case 'dataset':
+          if (typeof newValue !== 'object') {
+            throw new Error('invalid value for dataset prop');
+          }
+          reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        default:
+          if (newValue === undefined) {
+            if (name in originalProps) {
+              target[name] = originalProps[name];
+            }
+            break;
+          }
+
+          if (!(name in originalProps)) {
+            originalProps[name] = target[name];
+          }
+          target[name] = newValue;
+          break;
+      }
     }
   }
+
 
   for (const name in originalProps) {
     if (name in props) {
@@ -262,6 +311,60 @@ function reconcileElementProps(target, props) {
 
     target[name] = originalProps[name];
     delete originalProps[name];
+  }
+}
+
+function reconcileListeners(target, hooks) {
+  const oldHooks = target[NODE_STATE].vdom.hooks;
+
+  for (const name in hooks) {
+    if (name[0] === '$') {
+      continue;
+    }
+
+    const listener = hooks[name];
+    const oldListener = oldHooks[name];
+    if (listener === oldListener) {
+      continue;
+    }
+
+    switch(typeof oldListener) {
+      case 'function':
+        target.removeEventListener(name, oldListener);
+        break;
+      case 'object':
+        target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
+        break;
+    }
+
+    switch(typeof listener) {
+      case 'function':
+        target.addEventListener(name, listener);
+        break;
+      case 'object':
+        target.addEventListener(name, listener.listener, {
+          capture: listener.capture,
+          passive: listener.passive,
+        });
+        break;
+    }
+  }
+
+  for (const name in oldHooks) {
+    if (name[0] === '$' || name in hooks) {
+      continue;
+    }
+
+    const oldListener = oldHooks[name];
+
+    switch(typeof oldListener) {
+      case 'function':
+        target.removeEventListener(name, oldListener);
+        break;
+      case 'object':
+        target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
+        break;
+    }
   }
 }
 
@@ -275,7 +378,7 @@ function newElementNamespace(parentNode, newNodeTag) {
   return parentNode.namespaceURI;
 }
 
-function reconcileNode(target, vdom, force) {
+function reconcileNode(target, vdom) {
   const state = target[NODE_STATE];
   if (state.vdom.tag !== vdom.tag || state.vdom.key !== vdom.key) {
     throw new Error('incompatible vdom');
@@ -291,7 +394,7 @@ function reconcileNode(target, vdom, force) {
       reconcileElementProps(target, args[0]);
       break;
     case ALIAS_NODE:
-      if (force || shouldConsiderArgListsAsDifferent(state.vdom.args, vdom.args)) {
+      if (state.fresh || shouldConsiderArgListsAsDifferent(state.vdom.args, vdom.args)) {
         const innerVdom = vdom.tag.apply(undefined, vdom.args);
         if (innerVdom === undefined || innerVdom === null) {
           break;
@@ -311,13 +414,18 @@ function reconcileNode(target, vdom, force) {
         break;
       }
     case SPECIAL_NODE:
-      if (force || shouldConsiderArgListsAsDifferent(state.vdom.args, vdom.args)) {
+      if (state.fresh) {
+        vdom.tag.update?.(target, vdom.args, undefined);
+      } else if (shouldConsiderArgListsAsDifferent(state.vdom.args, vdom.args)) {
         vdom.tag.update?.(target, vdom.args, state.vdom.args);
       }
       break;
   }
 
+  vdom.hooks && reconcileListeners(target, vdom.hooks);
+
   state.vdom = vdom;
+  state.fresh = false;
 }
 
 function createElementNode(parentNode, tag, vdom) {
@@ -328,6 +436,7 @@ function createElementNode(parentNode, tag, vdom) {
   el[NODE_STATE] = {
     originalProps: {},
     vdom: vdom,
+    fresh: true,
   };
 
   return el;
@@ -360,10 +469,6 @@ function createNode(parentNode, vdom) {
   reconcileNode(domNode, vdom, true);
   return domNode;
 }
-
-
-const moveBefore = window.Element.prototype.moveBefore;
-const insertBefore = window.Element.prototype.insertBefore;
 
 const documentToFocusWithinSet = new WeakMap();
 
@@ -423,7 +528,7 @@ function reconcileElementChildren(target, childrenIterable) {
   const oldTextNodesPool = [];
   
   for (const oldChild of target.childNodes) {
-    if (oldChild.nodeType === Node.TEXT_NODE) {
+    if (oldChild.nodeType === 3 /* TEXT_NODE */) {
       oldTextNodesPool.push(oldChild);
       continue;
     }
@@ -485,7 +590,7 @@ function reconcileElementChildren(target, childrenIterable) {
         newDomNode = oldTextNodesPool.shift();
         newDomNode.nodeValue = newVdom?.toString();
       } else {
-        newDomNode = parentNode.ownerDocument.createTextNode(newVdom?.toString());
+        newDomNode = target.ownerDocument.createTextNode(newVdom?.toString());
       }
     }
     
@@ -502,6 +607,7 @@ function reconcileElementChildren(target, childrenIterable) {
     delete nodeToRemove[NODE_STATE];
   }
 
+  const moveBefore = window.Element.prototype.moveBefore;
   if (typeof moveBefore === 'function') {
     for (let i = 0; i < newDomChildren.length; i++) {
       const newChild = newDomChildren[i];
@@ -512,6 +618,7 @@ function reconcileElementChildren(target, childrenIterable) {
       }
     }
   } else {
+    const insertBefore = window.Element.prototype.insertBefore;
     const doc = target.ownerDocument;
     let focusWithin = documentToFocusWithinSet.get(doc);
     if (!focusWithin) {
@@ -531,44 +638,81 @@ function reconcileElementChildren(target, childrenIterable) {
   }
 }
 
-function reconcile(target, vdom) {
+export function reconcile(target, vdom) {
   if (typeof vdom !== 'object') {
     throw new Error('invalid vdom');
+  }
+
+  if (vdom === null || vdom === undefined) {
+    const state = target[NODE_STATE];
+    if (!state) {
+      return;
+    }
+
+    switch (state.vdom.type) {
+      case ELEMENT_NODE:
+      case OPAQUE_NODE:
+        reconcileElementProps(target, {});
+        reconcileElementChildren(target, []);
+        delete target[NODE_STATE];
+        break;
+      case SPECIAL_NODE:
+        state.vdom.tag.detach?.(target);
+      case ALIAS_NODE:
+        reconcileElementChildren(target, []);
+        break;
+      default:
+        throw Error();
+    }
+    return;
   }
   
   const iterator = vdom[Symbol.iterator]; 
   if (typeof iterator === 'function') {
     reconcileElementChildren(target, iterator.call(vdom));
-  } else if (vdom instanceof VNode) {
+    return;
+  }
+
+  if (vdom instanceof VNode) {
     if (target[NODE_STATE]) {
       reconcileNode(target, vdom);
     } else {
       switch (vdom.type) {
         case ELEMENT_NODE:
         case OPAQUE_NODE:
-          if (0 === target.nodeName.localCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
+          if (0 === target.nodeName.localeCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
             target[NODE_STATE] = {
               originalProps: {},
               vdom: vdom,
+              fresh: true,
             };
-            reconcileNode(target, vdom, true);
+            reconcileNode(target, vdom);
           } else {
             throw new Error('incompatible target for vdom');
           }
           break;
         case ALIAS_NODE:
+          target[NODE_STATE] = {
+            vdom: vdom,
+            fresh: true,
+          };
+          reconcileNode(target, vdom, true);
+          break;
         case SPECIAL_NODE:
           target[NODE_STATE] = {
-            originalProps: {},
             vdom: vdom,
-          }
+            fresh: true,
+          };
+          vdom.tag.attach?.(target);
           reconcileNode(target, vdom, true);
           break;
         default:
           throw Error();
       }
     }
-  } else {
-    throw new Error('invalid vdom');
+    return;
   }
+
+  throw new Error('invalid vdom');
+
 }
