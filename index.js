@@ -315,55 +315,78 @@ function reconcileElementProps(target, props) {
 }
 
 function reconcileListeners(target, hooks) {
-  const oldHooks = target[NODE_STATE].vdom.hooks;
+  const state = target[NODE_STATE];
+  const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
 
-  for (const name in hooks) {
-    if (name[0] === '$') {
-      continue;
+  if (state.fresh) {
+    for (const name in hooks) {
+      if (name[0] === '$') {
+        continue;
+      }
+
+      const listener = hooks[name];
+
+      switch(typeof listener) {
+        case 'function':
+          target.addEventListener(name, listener);
+          break;
+        case 'object':
+          target.addEventListener(name, listener.listener, {
+            capture: listener.capture,
+            passive: listener.passive,
+          });
+          break;
+      }
+    }
+  } else {
+    for (const name in hooks) {
+      if (name[0] === '$') {
+        continue;
+      }
+
+      const listener = hooks[name];
+      const oldListener = oldHooks[name];
+      if (listener === oldListener) {
+        continue;
+      }
+
+      switch(typeof oldListener) {
+        case 'function':
+          target.removeEventListener(name, oldListener);
+          break;
+        case 'object':
+          target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
+          break;
+      }
+
+      switch(typeof listener) {
+        case 'function':
+          target.addEventListener(name, listener);
+          break;
+        case 'object':
+          target.addEventListener(name, listener.listener, {
+            capture: listener.capture,
+            passive: listener.passive,
+          });
+          break;
+      }
     }
 
-    const listener = hooks[name];
-    const oldListener = oldHooks[name];
-    if (listener === oldListener) {
-      continue;
-    }
+    for (const name in oldHooks) {
+      if (name[0] === '$' || name in hooks) {
+        continue;
+      }
 
-    switch(typeof oldListener) {
-      case 'function':
-        target.removeEventListener(name, oldListener);
-        break;
-      case 'object':
-        target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
-        break;
-    }
+      const oldListener = oldHooks[name];
 
-    switch(typeof listener) {
-      case 'function':
-        target.addEventListener(name, listener);
-        break;
-      case 'object':
-        target.addEventListener(name, listener.listener, {
-          capture: listener.capture,
-          passive: listener.passive,
-        });
-        break;
-    }
-  }
-
-  for (const name in oldHooks) {
-    if (name[0] === '$' || name in hooks) {
-      continue;
-    }
-
-    const oldListener = oldHooks[name];
-
-    switch(typeof oldListener) {
-      case 'function':
-        target.removeEventListener(name, oldListener);
-        break;
-      case 'object':
-        target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
-        break;
+      switch(typeof oldListener) {
+        case 'function':
+          target.removeEventListener(name, oldListener);
+          break;
+        case 'object':
+          target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
+          break;
+      }
     }
   }
 }
@@ -422,10 +445,11 @@ function reconcileNode(target, vdom) {
       break;
   }
 
-  vdom.hooks && reconcileListeners(target, vdom.hooks);
+  (vdom.hooks || state.vdom.hooks) && reconcileListeners(target, vdom.hooks ?? EMPTY_OBJECT);
 
   state.vdom = vdom;
   state.fresh = false;
+  vdom.hooks?.$reconcile?.(target, vdom);
 }
 
 function createElementNode(parentNode, tag, vdom) {
@@ -466,6 +490,7 @@ function createNode(parentNode, vdom) {
       throw new Error();
   }
 
+  vdom.hooks?.$create?.(domNode);
   reconcileNode(domNode, vdom, true);
   return domNode;
 }
@@ -604,6 +629,9 @@ function reconcileElementChildren(target, childrenIterable) {
       nodeToRemoveState.vdom.tag.detach?.(nodeToRemove);
     }
     target.removeChild(nodeToRemove);
+
+    const state = nodeToRemove[NODE_STATE];
+    state.vdom.hooks?.$remove?.(nodeToRemove);
     delete nodeToRemove[NODE_STATE];
   }
 
@@ -638,32 +666,39 @@ function reconcileElementChildren(target, childrenIterable) {
   }
 }
 
+function cleanupTarget(target) {
+  const state = target[NODE_STATE];
+  if (!state) {
+    reconcileElementChildren(target, []);
+    return;
+  }
+
+  switch (state.vdom.type) {
+    case ELEMENT_NODE:
+    case OPAQUE_NODE:
+      reconcileElementProps(target, {});
+      reconcileElementChildren(target, []);
+      delete target[NODE_STATE];
+      break;
+    case SPECIAL_NODE:
+      state.vdom.tag.detach?.(target);
+    case ALIAS_NODE:
+      reconcileElementChildren(target, []);
+      break;
+    default:
+      throw Error();
+  }
+
+  delete target[NODE_STATE];
+}
+
 export function reconcile(target, vdom) {
   if (typeof vdom !== 'object') {
     throw new Error('invalid vdom');
   }
 
   if (vdom === null || vdom === undefined) {
-    const state = target[NODE_STATE];
-    if (!state) {
-      return;
-    }
-
-    switch (state.vdom.type) {
-      case ELEMENT_NODE:
-      case OPAQUE_NODE:
-        reconcileElementProps(target, {});
-        reconcileElementChildren(target, []);
-        delete target[NODE_STATE];
-        break;
-      case SPECIAL_NODE:
-        state.vdom.tag.detach?.(target);
-      case ALIAS_NODE:
-        reconcileElementChildren(target, []);
-        break;
-      default:
-        throw Error();
-    }
+    cleanupTarget(target);
     return;
   }
   
@@ -674,7 +709,11 @@ export function reconcile(target, vdom) {
   }
 
   if (vdom instanceof VNode) {
-    if (target[NODE_STATE]) {
+    const state = target[NODE_STATE];
+    if (state) {
+      if (state.vdom.type !== vdom.type) {
+        cleanupTarget(target);
+      }
       reconcileNode(target, vdom);
     } else {
       switch (vdom.type) {

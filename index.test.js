@@ -184,3 +184,60 @@ describe('special function (SPECIAL_NODE) specific behavior', () => {
     expect(updateCalls[1][2]).toEqual(['A']);
   });
 });
+
+describe('Event Listeners', () => {
+  test('should call the listener when the event is triggered', () => {
+    let clicked = false;
+    const clickHandler = () => { clicked = true; };
+    const button = h('button', null, 'Click me').on({ click: clickHandler });
+    reconcile(container, [button]);
+    const renderedButton = container.firstChild;
+    renderedButton.dispatchEvent(new window.MouseEvent('click'));
+    expect(clicked).toBe(true);
+  });
+
+  test('should remove the old listener when the node is replaced', () => {
+    let oldListenerCalled = false;
+    const oldListener = () => { oldListenerCalled = true; };
+    const oldNode = [h('button', null, 'Old button').on({ click: oldListener })];
+    reconcile(container, oldNode);
+    const oldButtonElement = container.firstChild;
+    const newNode = [h('button', null, 'New button')];
+    reconcile(container, newNode);
+    oldButtonElement.dispatchEvent(new window.MouseEvent('click'));
+    expect(oldListenerCalled).toBe(false);
+  });
+});
+
+describe('VNode lifecycle hooks', () => {
+  test('should call the $create hook when the node is created', () => {
+    let created = false;
+    const createHandler = () => { created = true; };
+    const div = h('div').on({ $create: createHandler });
+    reconcile(container, [div]);
+    expect(created).toBe(true);
+  });
+
+  test('should call the $remove hook when the node is removed', () => {
+    let removed = false;
+    const removeHandler = () => { removed = true; };
+    const div = h('div').on({ $remove: removeHandler });
+    reconcile(container, [div]);
+    reconcile(container, null);
+    expect(removed).toBe(true);
+  });
+
+  test('should call the $reconcile hook after every reconciliation', () => {
+    let reconcileCount = 0;
+    const reconcileHandler = () => { reconcileCount++; };
+
+    reconcile(container, [h('div').on({ $reconcile: reconcileHandler })]);
+    expect(reconcileCount).toBe(1);
+
+    reconcile(container, [h('div', { id: 'updated' }).on({ $reconcile: reconcileHandler })]);
+    expect(reconcileCount).toBe(2);
+
+    reconcile(container, null);
+    expect(reconcileCount).toBe(2);
+  });
+});
