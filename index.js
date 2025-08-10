@@ -636,17 +636,18 @@ function reconcileElementChildren(target, childrenIterable) {
   }
 
   const moveBefore = window.Element.prototype.moveBefore;
-  if (typeof moveBefore === 'function') {
+  const insertBefore = window.Element.prototype.insertBefore;
+  if (target.isConnected && typeof moveBefore === 'function') {
     for (let i = 0; i < newDomChildren.length; i++) {
       const newChild = newDomChildren[i];
       const existingChildAtPosition = target.childNodes[i];
       
       if (newChild !== existingChildAtPosition) {
-        moveBefore.call(target, newChild, existingChildAtPosition);
+        (newChild.isConnected ? moveBefore : insertBefore)
+          .call(target, newChild, existingChildAtPosition);
       }
     }
   } else {
-    const insertBefore = window.Element.prototype.insertBefore;
     const doc = target.ownerDocument;
     let focusWithin = documentToFocusWithinSet.get(doc);
     if (!focusWithin) {
@@ -701,6 +702,11 @@ export function reconcile(target, vdom) {
     cleanupTarget(target);
     return;
   }
+
+  const state = target[NODE_STATE];
+  if (state && (!(vdom instanceof VNode) || state.vdom.type != vdom.type)) {
+    cleanupTarget(target);
+  }
   
   const iterator = vdom[Symbol.iterator]; 
   if (typeof iterator === 'function') {
@@ -709,45 +715,37 @@ export function reconcile(target, vdom) {
   }
 
   if (vdom instanceof VNode) {
-    const state = target[NODE_STATE];
-    if (state) {
-      if (state.vdom.type !== vdom.type) {
-        cleanupTarget(target);
-      }
-      reconcileNode(target, vdom);
-    } else {
-      switch (vdom.type) {
-        case ELEMENT_NODE:
-        case OPAQUE_NODE:
-          if (0 === target.nodeName.localeCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
-            target[NODE_STATE] = {
-              originalProps: {},
-              vdom: vdom,
-              fresh: true,
-            };
-            reconcileNode(target, vdom);
-          } else {
-            throw new Error('incompatible target for vdom');
-          }
-          break;
-        case ALIAS_NODE:
+    switch (vdom.type) {
+      case ELEMENT_NODE:
+      case OPAQUE_NODE:
+        if (0 === target.nodeName.localeCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
           target[NODE_STATE] = {
+            originalProps: {},
             vdom: vdom,
             fresh: true,
           };
-          reconcileNode(target, vdom, true);
-          break;
-        case SPECIAL_NODE:
-          target[NODE_STATE] = {
-            vdom: vdom,
-            fresh: true,
-          };
-          vdom.tag.attach?.(target);
-          reconcileNode(target, vdom, true);
-          break;
-        default:
-          throw Error();
-      }
+          reconcileNode(target, vdom);
+        } else {
+          throw new Error('incompatible target for vdom');
+        }
+        break;
+      case ALIAS_NODE:
+        target[NODE_STATE] = {
+          vdom: vdom,
+          fresh: true,
+        };
+        reconcileNode(target, vdom, true);
+        break;
+      case SPECIAL_NODE:
+        target[NODE_STATE] = {
+          vdom: vdom,
+          fresh: true,
+        };
+        vdom.tag.attach?.(target);
+        reconcileNode(target, vdom, true);
+        break;
+      default:
+        throw Error();
     }
     return;
   }
