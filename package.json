@@ -1,5 +1,5 @@
 {
-  "name": "udom",
+  "name": "@3sln/udom",
   "module": "index.js",
   "type": "module",
   "devDependencies": {
