@@ -201,10 +201,9 @@ function reconcileElementClasses(target, oldClasses, newClasses) {
 
 function reconcileElementProps(target, props) {
   const nodeState = target[NODE_STATE];
-  const currentProps = nodeState?.vdom.args[0] ?? EMPTY_OBJECT;
   const originalProps = nodeState?.originalProps;
 
-  if (nodeState.fresh) {
+  if (!nodeState.vdom) {
     for (const name in props) {
       const newValue = props[name];
 
@@ -219,9 +218,7 @@ function reconcileElementProps(target, props) {
           if (typeof newValue !== 'object' || typeof newValue?.[Symbol.iterator] !== 'function') {
             throw new Error('invalid value for classes prop');
           }
-          {
-            reconcileElementClasses(target, EMPTY_ARRAY, newValue ?? EMPTY_ARRAY);
-          }
+          reconcileElementClasses(target, EMPTY_ARRAY, newValue ?? EMPTY_ARRAY);
           break;
         case 'attrs':
           if (typeof newValue !== 'object') {
@@ -251,6 +248,8 @@ function reconcileElementProps(target, props) {
       }
     }
   } else {
+    const currentProps = nodeState?.vdom.args[0] ?? EMPTY_OBJECT;
+
     for (const name in props) {
       const newValue = props[name];
       const oldValue = currentProps[name];
@@ -316,9 +315,8 @@ function reconcileElementProps(target, props) {
 
 function reconcileListeners(target, hooks) {
   const state = target[NODE_STATE];
-  const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
 
-  if (state.fresh) {
+  if (!state.vdom) {
     for (const name in hooks) {
       if (name[0] === '$') {
         continue;
@@ -339,6 +337,7 @@ function reconcileListeners(target, hooks) {
       }
     }
   } else {
+    const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
     for (const name in hooks) {
       if (name[0] === '$') {
         continue;
@@ -401,14 +400,13 @@ function newElementNamespace(parentNode, newNodeTag) {
   return parentNode.namespaceURI;
 }
 
-function reconcileNode(target, vdom) {
+function reconcileNode(target) {
   const state = target[NODE_STATE];
-  if (state.vdom.tag !== vdom.tag || state.vdom.key !== vdom.key) {
-    throw new Error('incompatible vdom');
-  }
+  const newVdom = state.newVdom;
+  const oldVdom = state.vdom;
 
-  const args = vdom.args;
-  switch(vdom.type) {
+  const args = newVdom.args;
+  switch(newVdom.type) {
     case ELEMENT_NODE:
       reconcileElementProps(target, args[0]);
       reconcileElementChildren(target, args.slice(1));
@@ -417,39 +415,36 @@ function reconcileNode(target, vdom) {
       reconcileElementProps(target, args[0]);
       break;
     case ALIAS_NODE:
-      if (state.fresh || shouldConsiderArgListsAsDifferent(state.vdom.args, vdom.args)) {
-        const innerVdom = vdom.tag.apply(undefined, vdom.args);
-        if (innerVdom === undefined || innerVdom === null) {
-          break;
-        }
-
-        if (innerVdom instanceof VNode) {
-          reconcileElementChildren(target, [innerVdom]);
-          break;
-        }
-
-        if (typeof innerVdom === 'object' && typeof innerVdom[Symbol.iterator] === 'function') {
-          reconcileElementChildren(target, innerVdom);
-          break;
-        }
-
-        reconcileElementChildren(target, [innerVdom.toString()]);
+      const innerVdom = newVdom.tag.apply(undefined, newVdom.args);
+      if (innerVdom === undefined || innerVdom === null) {
         break;
       }
+
+      if (innerVdom instanceof VNode) {
+        reconcileElementChildren(target, [innerVdom]);
+        break;
+      }
+
+      if (typeof innerVdom === 'object' && typeof innerVdom[Symbol.iterator] === 'function') {
+        reconcileElementChildren(target, innerVdom);
+        break;
+      }
+
+      reconcileElementChildren(target, [innerVdom.toString()]);
+      break;
     case SPECIAL_NODE:
-      if (state.fresh) {
-        vdom.tag.update?.(target, vdom.args, undefined);
-      } else if (shouldConsiderArgListsAsDifferent(state.vdom.args, vdom.args)) {
-        vdom.tag.update?.(target, vdom.args, state.vdom.args);
+      try {
+        newVdom.tag.update?.(target, newVdom.args, oldVdom?.args);
+      } catch (err) {
+        console.error(err);
       }
       break;
   }
 
-  (vdom.hooks || state.vdom.hooks) && reconcileListeners(target, vdom.hooks ?? EMPTY_OBJECT);
-
-  state.vdom = vdom;
-  state.fresh = false;
-  vdom.hooks?.$reconcile?.(target, vdom);
+  (newVdom.hooks || oldVdom?.hooks) && reconcileListeners(target, newVdom.hooks ?? EMPTY_OBJECT);
+  newVdom.hooks?.$reconcile?.(target, newVdom, oldVdom);
+  state.vdom = newVdom;
+  delete state.newVdom;
 }
 
 function createElementNode(parentNode, tag, vdom) {
@@ -459,8 +454,7 @@ function createElementNode(parentNode, tag, vdom) {
   );
   el[NODE_STATE] = {
     originalProps: {},
-    vdom: vdom,
-    fresh: true,
+    newVdom: vdom,
   };
 
   return el;
@@ -484,14 +478,10 @@ function createNode(parentNode, vdom) {
     case SPECIAL_NODE:
       domNode = createElementNode(parentNode, 'udom-special', vdom);
       domNode.style.display = 'contents';
-      vdom.tag.attach?.(domNode);
       break;
     default:
       throw new Error();
   }
-
-  vdom.hooks?.$create?.(domNode);
-  reconcileNode(domNode, vdom, true);
   return domNode;
 }
 
@@ -596,7 +586,10 @@ function reconcileElementChildren(target, childrenIterable) {
           const pool = oldNodesPoolForTag.nodesForKey.get(key);
           if (pool && pool.length > 0) {
             newDomNode = pool.shift();
-            reconcileNode(newDomNode, newVdom);
+            const state = newDomNode[NODE_STATE];
+            if (shouldConsiderArgListsAsDifferent(state.vdom.args, newVdom.args)) {
+              state.newVdom = newVdom;
+            }
           } else {
             newDomNode = createNode(target, newVdom);
           }
@@ -604,7 +597,9 @@ function reconcileElementChildren(target, childrenIterable) {
           const unkeyedOldNode = oldNodesPoolForTag.nodesWithoutKey.shift();
           if (unkeyedOldNode) {
             newDomNode = unkeyedOldNode;
-            reconcileNode(newDomNode, newVdom);
+            if (shouldConsiderArgListsAsDifferent(state.vdom.args, newVdom.args)) {
+              state.newVdom = newVdom;
+            }
           } else {
             newDomNode = createNode(target, newVdom);
           }
@@ -631,6 +626,9 @@ function reconcileElementChildren(target, childrenIterable) {
     target.removeChild(nodeToRemove);
 
     const state = nodeToRemove[NODE_STATE];
+    if (state.vdom.type === SPECIAL_NODE) {
+      state.vdom.tag.detach?.(nodeToRemove);
+    }
     state.vdom.hooks?.$remove?.(nodeToRemove);
     delete nodeToRemove[NODE_STATE];
   }
@@ -645,6 +643,22 @@ function reconcileElementChildren(target, childrenIterable) {
       if (newChild !== existingChildAtPosition) {
         (newChild.isConnected ? moveBefore : insertBefore)
           .call(target, newChild, existingChildAtPosition);
+      }
+
+      const state = newChild[NODE_STATE];
+      const newVdom = state?.newVdom;
+      if (newVdom) {
+        if (!state.vdom) {
+          try {
+            newVdom.hooks?.$create?.(target);
+            if (state.newVdom.type === SPECIAL_NODE) {
+              state.newVdomtag.attach?.(newChild);
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }
+        reconcileNode(newChild);
       }
     }
   } else {
@@ -662,6 +676,22 @@ function reconcileElementChildren(target, childrenIterable) {
         if (!focusWithin.has(newChild)) {
           insertBefore.call(target, newChild, existingChildAtPosition);
         }
+      }
+
+      const state = newChild[NODE_STATE];
+      const newVdom = state?.newVdom;
+      if (newVdom) {
+        if (!state.vdom) {
+          try {
+            newVdom.hooks?.$create?.(target);
+            if (state.newVdom.type === SPECIAL_NODE) {
+              state.newVdomtag.attach?.(newChild);
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        }
+        reconcileNode(newChild);
       }
     }
   }
@@ -702,54 +732,60 @@ export function reconcile(target, vdom) {
     cleanupTarget(target);
     return;
   }
-
-  const state = target[NODE_STATE];
-  if (state && (!(vdom instanceof VNode) || state.vdom.type != vdom.type)) {
-    cleanupTarget(target);
-  }
   
+  let state = target[NODE_STATE];
   const iterator = vdom[Symbol.iterator]; 
   if (typeof iterator === 'function') {
+    if (state) {
+      cleanupTarget(target);
+    }
     reconcileElementChildren(target, iterator.call(vdom));
     return;
   }
 
   if (vdom instanceof VNode) {
+    if (state) {
+      if (state.vdom.type === vdom.type) {
+        const oldVdom = state.vdom;
+        if (shouldConsiderArgListsAsDifferent(oldVdom.args, vdom.args)) {
+          state.newVdom = vdom;
+          reconcileNode(target);
+        } else {
+          state.vdom = vdom;
+        }
+        return;
+      } else {
+        cleanupTarget(target);
+        target[NODE_STATE] = state = {
+          originalProps: {},
+          newVdom: vdom,
+        };
+      }
+    } else {
+      target[NODE_STATE] = state = {
+        originalProps: {},
+        newVdom: vdom,
+      };
+    }
+
     switch (vdom.type) {
       case ELEMENT_NODE:
       case OPAQUE_NODE:
-        if (0 === target.nodeName.localeCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
-          target[NODE_STATE] = {
-            originalProps: {},
-            vdom: vdom,
-            fresh: true,
-          };
-          reconcileNode(target, vdom);
-        } else {
+        if (0 !== target.nodeName.localeCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
+          if (!state.vdom) {
+            delete target[NODE_STATE];
+          }
           throw new Error('incompatible target for vdom');
         }
         break;
-      case ALIAS_NODE:
-        target[NODE_STATE] = {
-          vdom: vdom,
-          fresh: true,
-        };
-        reconcileNode(target, vdom, true);
-        break;
       case SPECIAL_NODE:
-        target[NODE_STATE] = {
-          vdom: vdom,
-          fresh: true,
-        };
-        vdom.tag.attach?.(target);
-        reconcileNode(target, vdom, true);
-        break;
-      default:
-        throw Error();
+        if (!state.vdom) {
+          vdom.tag.attach?.(target);
+        }
     }
+    reconcileNode(target);
     return;
   }
 
   throw new Error('invalid vdom');
-
 }
