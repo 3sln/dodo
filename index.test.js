@@ -210,31 +210,31 @@ describe('Event Listeners', () => {
 });
 
 describe('VNode lifecycle hooks', () => {
-  test('should call the $create hook when the node is created', () => {
+  test('should call the $attach hook when the node is created', () => {
     let created = false;
     const createHandler = () => { created = true; };
-    const div = h('div').on({ $create: createHandler });
+    const div = h('div').on({ $attach: createHandler });
     reconcile(container, [div]);
     expect(created).toBe(true);
   });
 
-  test('should call the $remove hook when the node is removed', () => {
+  test('should call the $detach hook when the node is removed', () => {
     let removed = false;
     const removeHandler = () => { removed = true; };
-    const div = h('div').on({ $remove: removeHandler });
+    const div = h('div').on({ $detach: removeHandler });
     reconcile(container, [div]);
     reconcile(container, null);
     expect(removed).toBe(true);
   });
 
-  test('should call the $reconcile hook after every reconciliation', () => {
+  test('should call the $update hook after every reconciliation', () => {
     let reconcileCount = 0;
     const reconcileHandler = () => { reconcileCount++; };
 
-    reconcile(container, [h('div').on({ $reconcile: reconcileHandler })]);
+    reconcile(container, [h('div').on({ $update: reconcileHandler })]);
     expect(reconcileCount).toBe(1);
 
-    reconcile(container, [h('div', { id: 'updated' }).on({ $reconcile: reconcileHandler })]);
+    reconcile(container, [h('div', { id: 'updated' }).on({ $update: reconcileHandler })]);
     expect(reconcileCount).toBe(2);
 
     reconcile(container, null);
