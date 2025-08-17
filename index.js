@@ -397,7 +397,9 @@ function newElementNamespace(parentNode, newNodeTag) {
       case 'math': return 'http://www.w3.org/1998/Math/MathML';
     }
   }
-  return parentNode.namespaceURI;
+  return parentNode.namespaceURI
+    ?? parentNode.host?.namespaceURI
+    ?? 'http://www.w3.org/1999/xhtml';
 }
 
 function reconcileNode(target) {
