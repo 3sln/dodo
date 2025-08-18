@@ -209,7 +209,7 @@ function reconcileElementProps(target, props) {
 
       switch(name) {
         case 'styling':
-          if (typeof value !== 'object') {
+          if (typeof newValue !== 'object') {
             throw new Error('invalid value for styling prop');
           }
           reconcileElementStyling(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
@@ -260,7 +260,7 @@ function reconcileElementProps(target, props) {
 
       switch(name) {
         case 'styling':
-          if (typeof value !== 'object') {
+          if (typeof newValue !== 'object') {
             throw new Error('invalid value for styling prop');
           }
           reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
