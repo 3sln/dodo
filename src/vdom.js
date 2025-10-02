@@ -28,9 +28,24 @@ function defaultShouldUpdate(argsA, argsB) {
     return true;
   }
   for (let i = 0; i < argsA.length; i++) {
-    if (argsA[i] !== argsB[i]) {
-      return true;
+    const a = argsA[i];
+    const b = argsB[i];
+    if (a === b) {
+      continue;
     }
+    // Only perform a shallow array comparison, not a deep one.
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) {
+        return true;
+      }
+      for (let j = 0; j < a.length; j++) {
+        if (a[j] !== b[j]) {
+          return true;
+        }
+      }
+      continue;
+    }
+    return true;
   }
   return false;
 }
@@ -120,6 +135,9 @@ export default (userSettings) => {
   const convertStyleName = userSettings?.convertStyleName ?? ((s) => s);
   const convertDataName = userSettings?.convertDataName ?? ((d) => d);
   const convertClassName = userSettings?.convertClassName ?? ((c) => c);
+  const listenerKey = userSettings?.listenerKey ?? 'listener';
+  const captureKey = userSettings?.captureKey ?? 'capture';
+  const passiveKey = userSettings?.passiveKey ?? 'passive';
 
   function flattenSeqIntoArray(array, items) {
     for (const item of seqIter(items)) {
@@ -305,54 +323,47 @@ export default (userSettings) => {
     if (!state.vdom) {
       for (const [name, listener] of mapIter(hooks)) {
         if (name[0] === '$') continue;
-        switch (typeof listener) {
-          case 'function':
-            target.addEventListener(name, listener);
-            break;
-          case 'object':
-            target.addEventListener(name, listener.listener, { capture: listener.capture, passive: listener.passive });
-            break;
-        }
-      }
-    } else {
-      const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
-      for (const [name, listener] of mapIter(hooks)) {
-        if (name[0] === '$') continue;
-        const oldListener = mapGet(oldHooks, name);
-        if (listener === oldListener) continue;
-
-        switch (typeof oldListener) {
-          case 'function':
-            target.removeEventListener(name, oldListener);
-            break;
-          case 'object':
-            target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
-            break;
-        }
-        switch (typeof listener) {
-          case 'function':
-            target.addEventListener(name, listener);
-            break;
-          case 'object':
-            target.addEventListener(name, listener.listener, { capture: listener.capture, passive: listener.passive });
-            break;
-        }
-      }
-      for (const [name] of mapIter(oldHooks)) {
-        if (name[0] === '$' || mapGet(hooks, name) !== undefined) continue;
-        const oldListener = mapGet(oldHooks, name);
-        switch (typeof oldListener) {
-          case 'function':
-            target.removeEventListener(name, oldListener);
-            break;
-          case 'object':
-            target.removeEventListener(name, oldListener.listener, !!oldListener.capture);
-            break;
-        }
-      }
+        if (typeof listener === 'function') {
+          target.addEventListener(name, listener);
+              } else if (listener != null) {
+                target.addEventListener(name, mapGet(listener, listenerKey), { 
+                  capture: !!mapGet(listener, captureKey), 
+                  passive: !!mapGet(listener, passiveKey) 
+                });
+              }
+            }
+          } else {
+            const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
+            for (const [name, listener] of mapIter(hooks)) {
+              if (name[0] === '$') continue;
+              const oldListener = mapGet(oldHooks, name);
+              if (listener === oldListener) continue;
+        
+              if (typeof oldListener === 'function') {
+                target.removeEventListener(name, oldListener);
+              } else if (oldListener != null) {
+                target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
+              }
+              
+              if (typeof listener === 'function') {
+                target.addEventListener(name, listener);
+              } else if (listener != null) {
+                target.addEventListener(name, mapGet(listener, listenerKey), { 
+                  capture: !!mapGet(listener, captureKey), 
+                  passive: !!mapGet(listener, passiveKey) 
+                });
+              }
+            }
+            for (const [name] of mapIter(oldHooks)) {
+              if (name[0] === '$' || mapGet(hooks, name) !== undefined) continue;
+              const oldListener = mapGet(oldHooks, name);
+              if (typeof oldListener === 'function') {
+                target.removeEventListener(name, oldListener);
+              } else if (oldListener != null) {
+                target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
+              }      }
     }
   }
-
   function reconcileNode(target) {
     const state = target[NODE_STATE];
     const newVdom = state.newVdom;
@@ -427,9 +438,12 @@ export default (userSettings) => {
   }
 
   function cleanupTarget(target) {
-    for (const child of target.children) {
-      cleanupTarget(child);
+    if (target.children) {
+      for (const child of target.children) {
+        cleanupTarget(child);
+      }
     }
+
     const state = target[NODE_STATE];
     if (state) {
       switch (state.vdom.type) {

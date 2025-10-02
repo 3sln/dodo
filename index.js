@@ -52,6 +52,10 @@ const cljsSettings = c ? {
   convertDataName: (d) => (c.keyword_QMARK___(d) ? c.name(d) : d),
   convertClassName: (c) => (c.keyword_QMARK___(c) ? c.name(c) : c.toString()),
 
+  listenerKey: c.keyword(null, 'listener'),
+  captureKey: c.keyword(null, 'capture'),
+  passiveKey: c.keyword(null, 'passive'),
+
 } : {};
 
 // --- API Creation ---

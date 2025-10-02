@@ -1,0 +1,19 @@
+{
+  "name": "dodo-bench",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "bench:node": "bun run src/node-runner.js",
+    "bench:browser": "vite"
+  },
+  "dependencies": {
+    "@3sln/dodo": "link:@3sln/dodo",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.1.0",
+    "happy-dom": "^18.0.1"
+  }
+}
