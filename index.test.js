@@ -33,7 +33,7 @@ describe('reconcile function', () => {
 
   test('should reconcile an OPAQUE_NODE onto a matching DOM element', () => {
     const vdom = o('div', {
-      classes: ['opaque-container']
+      $classes: ['opaque-container']
     });
     reconcile(container, vdom);
     expect(container.className).toEqual('opaque-container');
@@ -111,6 +111,12 @@ describe('h function (ELEMENT_NODE) specific behavior', () => {
     reconcile(rootDiv, vdom2);
     expect(rootDiv.textContent).toEqual('CAB');
     expect(rootDiv.childNodes[1]).toBe(firstChild);
+  });
+
+  test('should handle omitted props object', () => {
+    const vdom = h('p', 'test content');
+    reconcile(rootDiv, [vdom]);
+    expect(rootDiv.innerHTML).toEqual('<p>test content</p>');
   });
 });
 

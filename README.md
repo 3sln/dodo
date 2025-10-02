@@ -1,17 +1,17 @@
-# udom
+# dodo
 A minimal virtual DOM engine.
 
 ## Quick Start
 
 ```javascript
-import { h, o, alias, special, reconcile } from 'udom';
+import { h, o, alias, special, reconcile } from '3sln/dodo';
 
 const container = document.getElementById('root');
 
 // Use h() for standard virtual element nodes.
 // Arguments: tag, props, then children.
 const myVdom = h('div', { id: 'app' },
-  h('h1', null, 'Hello, udom!'),
+  h('h1', null, 'Hello, dodo!'),
   h('p', { class: ['text-lg'] }, 'This is a paragraph.')
 );
 reconcile(container, [myVdom]);
