@@ -9,3 +9,4 @@ export { vdom, h, o, alias, special, reconcile };
 
 // Export all the HTML helpers.
 export * from './src/html.js';
+export { schedule, flush, clear } from './src/scheduler.js';
