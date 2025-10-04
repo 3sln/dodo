@@ -26,6 +26,7 @@ reconcile(container, [myVdom]);
 - **`$`-Prefixed Props:** Special props that `dodo` intercepts are prefixed with a `$` to avoid conflicts with standard properties (e.g., `$classes`, `$styling`, `$attrs`, `$dataset`).
 - **`.key()`:** Chain `.key('unique-id')` to any VNode in a list to enable efficient, keyed reconciliation.
 - **`.on()`:** Chain `.on({ event: handler })` to any VNode to attach event listeners or lifecycle hooks (`$attach`, `$detach`, `$update`).
+- **`.opaque()`**: Marks an element node as opaque, meaning `dodo` will manage its props but not its children.
 
 ## Keys for List Reconciliation
 

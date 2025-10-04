@@ -21,33 +21,39 @@ class VNode {
     this.hooks = hooks;
     return this;
   }
+
+  opaque() {
+    if (this.type !== ELEMENT_NODE) {
+      throw new Error('.opaque() can only be used on element nodes (h).');
+    }
+    this.type = OPAQUE_NODE;
+    return this;
+  }
 }
 
-function defaultShouldUpdate(argsA, argsB) {
-  if (argsA.length !== argsB.length) {
-    return true;
-  }
-  for (let i = 0; i < argsA.length; i++) {
-    const a = argsA[i];
-    const b = argsB[i];
-    if (a === b) {
-      continue;
-    }
-    // Only perform a shallow array comparison, not a deep one.
-    if (Array.isArray(a) && Array.isArray(b)) {
-      if (a.length !== b.length) {
-        return true;
-      }
-      for (let j = 0; j < a.length; j++) {
-        if (a[j] !== b[j]) {
-          return true;
+function defaultShouldUpdate(a, b) {
+    if (a === b) return false;
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+        if (a.constructor !== b.constructor) return true;
+
+        if (Array.isArray(a)) {
+            if (a.length !== b.length) return true;
+            for (let j = 0; j < a.length; j++) {
+                if (a[j] !== b[j]) return true;
+            }
+            return false;
         }
-      }
-      continue;
+
+        if (a.constructor === Object) {
+            const keysA = Object.keys(a);
+            if (keysA.length !== Object.keys(b).length) return true;
+            for (const key of keysA) {
+                if (!b.hasOwnProperty(key) || a[key] !== b[key]) return true;
+            }
+            return false;
+        }
     }
     return true;
-  }
-  return false;
 }
 
 function isIterable(x) {
@@ -128,6 +134,9 @@ export default (userSettings) => {
   const isMap = userSettings?.isMap ?? ((x) => x?.constructor === Object);
   const mapIter = userSettings?.mapIter ?? ((m) => Object.entries(m));
   const mapGet = userSettings?.mapGet ?? ((m, k) => m[k]);
+  const mapMerge = userSettings?.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
+  const newMap = userSettings?.newMap ?? ((obj) => ({...obj}));
+  const mapPut = userSettings?.mapPut ?? ((m, k, v) => { m[k] = v; return m; });
   const isSeq = userSettings?.isSeq ?? isIterable;
   const seqIter = userSettings?.seqIter ?? ((s) => s);
   const convertTagName = userSettings?.convertTagName ?? ((t) => t);
@@ -139,9 +148,12 @@ export default (userSettings) => {
   const captureKey = userSettings?.captureKey ?? 'capture';
   const passiveKey = userSettings?.passiveKey ?? 'passive';
 
-  function flattenSeqIntoArray(array, items) {
+  function flattenSeqIntoArray(array, items, excludeFalsey) {
     for (const item of seqIter(items)) {
-      if (item === null || item === undefined) continue;
+      if (excludeFalsey && (item == null || item == false)) {
+        continue;
+      }
+
       if (!isSeq(item)) {
         array.push(item);
       } else {
@@ -150,9 +162,9 @@ export default (userSettings) => {
     }
   }
 
-  function defaultFlattenSeq(items) {
+  function defaultFlattenSeq(items, excludeFalsey) {
     const array = [];
-    flattenSeqIntoArray(array, items);
+    flattenSeqIntoArray(array, items, excludeFalsey);
     return array;
   }
 
@@ -180,10 +192,6 @@ export default (userSettings) => {
       props = EMPTY_OBJECT;
     }
     return new VNode(ELEMENT_NODE, convertTagName(tag), [props ?? EMPTY_OBJECT, ...children]);
-  }
-
-  function o(tag, props) {
-    return new VNode(OPAQUE_NODE, convertTagName(tag), [props ?? EMPTY_OBJECT]);
   }
 
   function reconcileElementStyling(target, oldStyling, newStyling) {
@@ -218,8 +226,8 @@ export default (userSettings) => {
   }
 
   function reconcileElementClasses(target, oldClasses, newClasses) {
-    const classesToRemove = new Set(flattenSeq(oldClasses));
-    for (const c of flattenSeq(newClasses)) {
+    const classesToRemove = new Set(flattenSeq(oldClasses, true));
+    for (const c of flattenSeq(newClasses, true)) {
       const className = convertClassName(c);
       classesToRemove.delete(className);
       target.classList.add(className);
@@ -325,45 +333,47 @@ export default (userSettings) => {
         if (name[0] === '$') continue;
         if (typeof listener === 'function') {
           target.addEventListener(name, listener);
-              } else if (listener != null) {
-                target.addEventListener(name, mapGet(listener, listenerKey), { 
-                  capture: !!mapGet(listener, captureKey), 
-                  passive: !!mapGet(listener, passiveKey) 
-                });
-              }
-            }
-          } else {
-            const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
-            for (const [name, listener] of mapIter(hooks)) {
-              if (name[0] === '$') continue;
-              const oldListener = mapGet(oldHooks, name);
-              if (listener === oldListener) continue;
+        } else if (listener != null) {
+          target.addEventListener(name, mapGet(listener, listenerKey), { 
+            capture: !!mapGet(listener, captureKey), 
+            passive: !!mapGet(listener, passiveKey) 
+          });
+        }
+      }
+    } else {
+      const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
+      for (const [name, listener] of mapIter(hooks)) {
+        if (name[0] === '$') continue;
+        const oldListener = mapGet(oldHooks, name);
+        if (listener === oldListener) continue;
+
+        if (typeof oldListener === 'function') {
+          target.removeEventListener(name, oldListener);
+        } else if (oldListener != null) {
+          target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
+        }
         
-              if (typeof oldListener === 'function') {
-                target.removeEventListener(name, oldListener);
-              } else if (oldListener != null) {
-                target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
-              }
-              
-              if (typeof listener === 'function') {
-                target.addEventListener(name, listener);
-              } else if (listener != null) {
-                target.addEventListener(name, mapGet(listener, listenerKey), { 
-                  capture: !!mapGet(listener, captureKey), 
-                  passive: !!mapGet(listener, passiveKey) 
-                });
-              }
-            }
-            for (const [name] of mapIter(oldHooks)) {
-              if (name[0] === '$' || mapGet(hooks, name) !== undefined) continue;
-              const oldListener = mapGet(oldHooks, name);
-              if (typeof oldListener === 'function') {
-                target.removeEventListener(name, oldListener);
-              } else if (oldListener != null) {
-                target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
-              }      }
+        if (typeof listener === 'function') {
+          target.addEventListener(name, listener);
+        } else if (listener != null) {
+          target.addEventListener(name, mapGet(listener, listenerKey), { 
+            capture: !!mapGet(listener, captureKey), 
+            passive: !!mapGet(listener, passiveKey) 
+          });
+        }
+      }
+      for (const [name] of mapIter(oldHooks)) {
+        if (name[0] === '$' || mapGet(hooks, name) !== undefined) continue;
+        const oldListener = mapGet(oldHooks, name);
+        if (typeof oldListener === 'function') {
+          target.removeEventListener(name, oldListener);
+        } else if (oldListener != null) {
+          target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
+        }
+      }
     }
   }
+
   function reconcileNode(target) {
     const state = target[NODE_STATE];
     const newVdom = state.newVdom;
@@ -657,5 +667,9 @@ export default (userSettings) => {
     throw new Error('invalid vdom');
   }
 
-  return { h, o, alias, special, reconcile };
+  return { h, alias, special, reconcile, settings: {
+    shouldUpdate, isMap, mapIter, mapGet, mapMerge, newMap, mapPut, isSeq, flattenSeq, seqIter,
+    convertTagName, convertPropName, convertStyleName, convertDataName, convertClassName,
+    listenerKey, captureKey, passiveKey
+  } };
 }
