@@ -1,4 +1,8 @@
 # dodo
+
+> [!WARNING]
+> This is a work-in-progress project and is not yet ready for production use.
+
 A minimal, configurable virtual DOM library.
 
 ## Quick Start

@@ -239,90 +239,91 @@ export default (userSettings) => {
 
   function reconcileElementProps(target, props) {
     const nodeState = target[NODE_STATE];
-    const originalProps = nodeState?.originalProps;
+    const isHtml = target.namespaceURI === 'http://www.w3.org/1999/xhtml';
+    const oldProps = nodeState.vdom?.args[0] ?? EMPTY_OBJECT;
 
-    if (!nodeState.vdom) {
-      for (const [name, newValue] of mapIter(props)) {
+    // Handle new and changed props
+    for (const [name, newValue] of mapIter(props)) {
         const propName = convertPropName(name);
-        switch (propName) {
-          case '$styling': {
-            if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-            reconcileElementStyling(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-            break;
-          }
-          case '$classes': {
-            if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
-            reconcileElementClasses(target, [], newValue ?? []);
-            break;
-          }
-          case '$attrs': {
-            if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-            reconcileElementAttributes(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-            break;
-          }
-          case '$dataset': {
-            if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-            reconcileElementDataset(target, EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-            break;
-          }
-          default: {
-            if (newValue === undefined) {
-              if (propName in originalProps) target[propName] = originalProps[propName];
-              break;
-            }
-            if (!(propName in originalProps)) originalProps[propName] = target[propName];
-            target[propName] = newValue;
-            break;
-          }
-        }
-      }
-    } else {
-      const currentProps = nodeState?.vdom.args[0] ?? EMPTY_OBJECT;
-      for (const [name, newValue] of mapIter(props)) {
-        const propName = convertPropName(name);
-        const oldValue = mapGet(currentProps, name);
+        const oldValue = mapGet(oldProps, name);
 
         if (Object.is(newValue, oldValue)) continue;
 
         switch (propName) {
-          case '$styling': {
-            if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-            reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-            break;
-          }
-          case '$classes': {
-            if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
-            reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
-            break;
-          }
-          case '$attrs': {
-            if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-            reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-            break;
-          }
-          case '$dataset': {
-            if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-            reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-            break;
-          }
-          default: {
-            if (newValue === undefined) {
-              if (propName in originalProps) target[propName] = originalProps[propName];
-              break;
+            case '$styling': {
+                if (!isMap(newValue)) throw new Error('invalid value for styling prop');
+                reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+                break;
             }
-            if (!(propName in originalProps)) originalProps[propName] = target[propName];
-            target[propName] = newValue;
-            break;
-          }
+            case '$classes': {
+                if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
+                reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
+                break;
+            }
+            case '$attrs': {
+                if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
+                reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+                break;
+            }
+            case '$dataset': {
+                if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
+                reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+                break;
+            }
+            default: {
+                if (isHtml) {
+                    const originalProps = nodeState.originalProps;
+                    if (!(propName in originalProps)) {
+                        originalProps[propName] = target[propName];
+                    }
+                    if (newValue === undefined) {
+                        target[propName] = originalProps[propName];
+                    } else {
+                        target[propName] = newValue;
+                    }
+                } else {
+                    if (newValue === undefined) {
+                        target.removeAttribute(propName);
+                    } else {
+                        target.setAttribute(propName, newValue);
+                    }
+                }
+                break;
+            }
         }
-      }
     }
 
-    for (const [name] of mapIter(originalProps)) {
-      if (mapGet(props, name) !== undefined) continue;
-      const propName = convertPropName(name);
-      target[propName] = originalProps[propName];
-      delete originalProps[propName];
+    // Handle removed props
+    for (const [name, oldValue] of mapIter(oldProps)) {
+        if (mapGet(props, name) !== undefined) continue; // it wasn't removed
+
+        const propName = convertPropName(name);
+        switch (propName) {
+            case '$styling':
+                reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+                break;
+            case '$classes':
+                reconcileElementClasses(target, oldValue ?? [], []);
+                break;
+            case '$attrs':
+                reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+                break;
+            case '$dataset':
+                reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+                break;
+            default: {
+                if (isHtml) {
+                    const originalProps = nodeState.originalProps;
+                    if (propName in originalProps) {
+                        target[propName] = originalProps[propName];
+                        delete originalProps[propName];
+                    }
+                } else {
+                    target.removeAttribute(propName);
+                }
+                break;
+            }
+        }
     }
   }
 

@@ -44,6 +44,45 @@ This section applies when you are using `dodo` to build an application or UI.
     - **`.on({ evt: fn })`**: Attaches event listeners or lifecycle hooks. Can be chained onto any VNode.
     - **`.opaque()`**: Marks an element node as opaque, meaning `dodo` will manage its props but not its children. Can only be chained onto element nodes (`h` or helpers).
 
+### Syntax Clarifications
+
+This section covers common points of confusion in the `dodo` API.
+
+#### 1. Passing Children
+
+Child VNodes are **always** passed as arguments to the helper function, *after* the optional props object. There is no `.children()` method.
+
+-   **Correct:** `div({ id: 'parent' }, h1('Title'), p('Content'))`
+-   **Incorrect:** `div({ id: 'parent' }).children(h1('Title'), ...)`
+
+#### 2. Styling Properties
+
+When using the `$styling` prop, all CSS property names **must** be snake-cased, as they are in standard CSS. CamelCase will not work.
+
+-   **Correct:** `div({ $styling: { 'margin-bottom': '1em', 'font-size': '16px' } })`
+-   **Incorrect:** `div({ $styling: { marginBottom: '1em', fontSize: '16px' } })`
+
+#### 3. Chaining Event Handlers
+
+The `.on()` method is chained to the VNode created by a helper function. The children are passed to the helper function itself, not to the `.on()` call.
+
+-   **Correct:**
+    ```javascript
+    div({ id: 'clickable' },
+        'Click me'
+    ).on({
+        click: () => console.log('Clicked!')
+    })
+    ```
+-   **Incorrect:**
+    ```javascript
+    // Don't pass children after .on()
+    div({ id: 'clickable' })
+        .on({ click: () => console.log('Clicked!') },
+            'Click me'
+        )
+    ```
+
 ### Event Listeners and Lifecycle Hooks
 
 Use the `.on()` method to attach event listeners and lifecycle hooks (`$attach`, `$detach`, `$update`). The value for an event can be a function or an object:

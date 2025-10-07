@@ -1,7 +1,26 @@
 {
   "name": "@3sln/dodo",
-  "module": "index.js",
+  "version": "0.0.1",
+  "description": "A minimal, configurable virtual DOM library.",
+  "main": "index.js",
   "type": "module",
+  "author": "Ray Stubbs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/3sln/dodo.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "vdom",
+    "virtual dom",
+    "ui",
+    "declarative"
+  ],
+  "files": [
+    "index.js",
+    "dodo.js",
+    "src/"
+  ],
   "devDependencies": {
     "@types/bun": "latest",
     "happy-dom": "^18.0.1"
