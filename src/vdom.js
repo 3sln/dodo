@@ -91,10 +91,10 @@ function getPathFromElement(element) {
   let current = element;
   while (current) {
     path.push(current);
-    if (current.shadowRoot) {
-      current = current.shadowRoot.host;
+    if (current.parentElement) {
+      current = current.parentElement;
     } else {
-      current = current.parentNode;
+      current = current.getRootNode()?.host;
     }
   }
   return path;
@@ -577,41 +577,65 @@ export default (userSettings) => {
 
     const moveBefore = window.Element.prototype.moveBefore;
     const insertBefore = window.Element.prototype.insertBefore;
-    if (target.isConnected && typeof moveBefore === 'function') {
-      for (let i = 0; i < newDomChildren.length; i++) {
-        const newChild = newDomChildren[i];
-        const existingChildAtPosition = target.childNodes[i];
-        if (newChild !== existingChildAtPosition) {
-          (newChild.isConnected ? moveBefore : insertBefore).call(target, newChild, existingChildAtPosition);
-        }
-        const state = newChild[NODE_STATE];
-        if (state?.newVdom) {
-          if (!state.vdom) {
-            try {
-              state.newVdom.hooks?.$attach?.(newChild);
-              if (state.newVdom.type === SPECIAL_NODE) {
-                state.newVdom.tag.attach?.(newChild);
+    if (target.isConnected) {
+      if (typeof moveBefore === 'function') {
+        for (let i = 0; i < newDomChildren.length; i++) {
+          const newChild = newDomChildren[i];
+          const existingChildAtPosition = target.childNodes[i];
+          if (newChild !== existingChildAtPosition) {
+            (newChild.isConnected ? moveBefore : insertBefore).call(target, newChild, existingChildAtPosition);
+          }
+          const state = newChild[NODE_STATE];
+          if (state?.newVdom) {
+            if (!state.vdom) {
+              try {
+                state.newVdom.hooks?.$attach?.(newChild);
+                if (state.newVdom.type === SPECIAL_NODE) {
+                  state.newVdom.tag.attach?.(newChild);
+                }
+              } catch (err) {
+                console.error(err);
               }
-            } catch (err) {
-              console.error(err);
+            }
+            reconcileNode(newChild);
+          }
+        }
+      } else {
+        const doc = target.ownerDocument;
+        let focusWithin = documentToFocusWithinSet.get(doc);
+        if (!focusWithin) {
+          focusWithin = installFocusTrackingForDocument(doc);
+        }
+        for (let i = 0; i < newDomChildren.length; i++) {
+          const newChild = newDomChildren[i];
+          const existingChildAtPosition = target.childNodes[i];
+          if (newChild !== existingChildAtPosition) {
+            if (!focusWithin.has(newChild)) {
+              insertBefore.call(target, newChild, existingChildAtPosition);
             }
           }
-          reconcileNode(newChild);
+          const state = newChild[NODE_STATE];
+          if (state?.newVdom) {
+            if (!state.vdom) {
+              try {
+                state.newVdom.hooks?.$attach?.(newChild);
+                if (state.newVdom.type === SPECIAL_NODE) {
+                  state.newVdom.tag.attach?.(newChild);
+                }
+              } catch (err) {
+                console.error(err);
+              }
+            }
+            reconcileNode(newChild);
+          }
         }
       }
     } else {
-      const doc = target.ownerDocument;
-      let focusWithin = documentToFocusWithinSet.get(doc);
-      if (!focusWithin) {
-        focusWithin = installFocusTrackingForDocument(doc);
-      }
       for (let i = 0; i < newDomChildren.length; i++) {
         const newChild = newDomChildren[i];
         const existingChildAtPosition = target.childNodes[i];
         if (newChild !== existingChildAtPosition) {
-          if (!focusWithin.has(newChild)) {
-            insertBefore.call(target, newChild, existingChildAtPosition);
-          }
+          insertBefore.call(target, newChild, existingChildAtPosition);
         }
         const state = newChild[NODE_STATE];
         if (state?.newVdom) {

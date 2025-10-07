@@ -2,7 +2,6 @@ import { test, expect, describe, beforeEach, mock } from 'bun:test';
 import { Window } from 'happy-dom';
 import {
   h,
-  o,
   alias,
   special,
   reconcile,
@@ -32,17 +31,17 @@ describe('reconcile function', () => {
   });
 
   test('should reconcile an OPAQUE_NODE onto a matching DOM element', () => {
-    const vdom = o('div', {
+    const vdom = h('div', {
       $classes: ['opaque-container']
-    });
+    }).opaque();
     reconcile(container, vdom);
     expect(container.className).toEqual('opaque-container');
   });
 
   test('should throw an error when reconciling an OPAQUE_NODE onto a mismatched DOM element', () => {
-    const vdom = o('span', {
+    const vdom = h('span', {
       class: 'opaque-container'
-    });
+    }).opaque();
     expect(() => reconcile(container, vdom)).toThrow('incompatible target for vdom');
   });
 
@@ -130,9 +129,9 @@ describe('o function (OPAQUE_NODE) specific behavior', () => {
   });
 
   test('should create an opaque node with props but not touch children', () => {
-    const vdom = o('div', {
+    const vdom = h('div', {
       id: 'opaque-div'
-    });
+    }).opaque();
     reconcile(rootDiv, vdom);
     expect(rootDiv.id).toEqual('opaque-div');
     expect(rootDiv.innerHTML).toEqual('<span>Initial Content</span>');
