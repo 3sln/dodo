@@ -448,21 +448,34 @@ export default (userSettings) => {
     return domNode;
   }
 
-  function cleanupTarget(target) {
+  function cleanupTargetChildren(target) {
     if (target.children) {
       for (const child of target.children) {
         cleanupTarget(child);
       }
     }
+  }
 
+  function cleanupTarget(target) {
     const state = target[NODE_STATE];
     if (state) {
+
       switch (state.vdom.type) {
         case ELEMENT_NODE:
+          reconcileElementProps(target, {});
+          cleanupTargetChildren(target);
+          delete target[NODE_STATE];
+          break;
         case OPAQUE_NODE:
           reconcileElementProps(target, {});
+          delete target[NODE_STATE];
+          break;
+        case ALIAS_NODE:
+          cleanupTargetChildren(target);
+          delete target[NODE_STATE];
           break;
         case SPECIAL_NODE:
+          delete target[NODE_STATE];
           try {
             state.vdom.tag.detach?.(target);
           } catch (err) {
@@ -475,7 +488,6 @@ export default (userSettings) => {
       } catch (err) {
         console.error(err);
       }
-      delete target[NODE_STATE];
     }
   }
 
@@ -620,8 +632,14 @@ export default (userSettings) => {
   }
 
   function reconcile(target, vdom) {
+    const state = target[NODE_STATE];
     if (vdom === null || vdom === undefined) {
-      cleanupTarget(target);
+      if (state) {
+        cleanupTarget(target);
+      } else {
+        cleanupTargetChildren(target);
+      }
+      target.replaceChildren();
       return;
     }
 
@@ -631,7 +649,6 @@ export default (userSettings) => {
     }
 
     if (vdom instanceof VNode) {
-      let state = target[NODE_STATE];
       if (state) {
         if (state.vdom.type === vdom.type) {
           if (shouldUpdate(state.vdom.args, vdom.args)) {
@@ -652,7 +669,7 @@ export default (userSettings) => {
           break;
       }
 
-      target[NODE_STATE] = state = { originalProps: {}, newVdom: vdom };
+      target[NODE_STATE] = { originalProps: {}, newVdom: vdom };
       try {
         vdom.hooks?.$attach?.(target);
         if (vdom.type === SPECIAL_NODE) {
