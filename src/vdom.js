@@ -32,32 +32,35 @@ class VNode {
 }
 
 function defaultShouldUpdate(a, b) {
-    if (a === b) return false;
-    if (a && b && typeof a === 'object' && typeof b === 'object') {
-        if (a.constructor !== b.constructor) return true;
+  if (a === b) return false;
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    if (a.constructor !== b.constructor) return true;
 
-        if (Array.isArray(a)) {
-            if (a.length !== b.length) return true;
-            for (let j = 0; j < a.length; j++) {
-                if (a[j] !== b[j]) return true;
-            }
-            return false;
-        }
-
-        if (a.constructor === Object) {
-            const keysA = Object.keys(a);
-            if (keysA.length !== Object.keys(b).length) return true;
-            for (const key of keysA) {
-                if (!b.hasOwnProperty(key) || a[key] !== b[key]) return true;
-            }
-            return false;
-        }
+    if (Array.isArray(a)) {
+      if (a.length !== b.length) return true;
+      for (let j = 0; j < a.length; j++) {
+        if (a[j] !== b[j]) return true;
+      }
+      return false;
     }
-    return true;
+
+    if (a.constructor === Object) {
+      const keysA = Object.keys(a);
+      if (keysA.length !== Object.keys(b).length) return true;
+      for (const key of keysA) {
+        if (!b.hasOwnProperty(key) || a[key] !== b[key]) return true;
+      }
+      return false;
+    }
+  }
+  return true;
 }
 
 function isIterable(x) {
-  return Array.isArray(x) || (x != null && typeof x[Symbol.iterator] === 'function' && typeof x !== 'string');
+  return (
+    Array.isArray(x) ||
+    (x != null && typeof x[Symbol.iterator] === 'function' && typeof x !== 'string')
+  );
 }
 
 function alias(f) {
@@ -71,8 +74,10 @@ function special(o) {
 function newElementNamespace(parentNode, newNodeTag) {
   if (parentNode.namespaceURI === 'http://www.w3.org/1999/xhtml') {
     switch (newNodeTag) {
-      case 'svg': return 'http://www.w3.org/2000/svg';
-      case 'math': return 'http://www.w3.org/1998/Math/MathML';
+      case 'svg':
+        return 'http://www.w3.org/2000/svg';
+      case 'math':
+        return 'http://www.w3.org/1998/Math/MathML';
     }
   }
   return parentNode.namespaceURI ?? parentNode.host?.namespaceURI ?? 'http://www.w3.org/1999/xhtml';
@@ -80,7 +85,7 @@ function newElementNamespace(parentNode, newNodeTag) {
 
 function createElementNode(parentNode, tag, vdom) {
   const el = parentNode.ownerDocument.createElementNS(newElementNamespace(parentNode, tag), tag);
-  el[NODE_STATE] = { originalProps: {}, newVdom: vdom };
+  el[NODE_STATE] = {originalProps: {}, newVdom: vdom};
   return el;
 }
 
@@ -117,10 +122,10 @@ function removePathFromFocusWithinSet(set, newPath) {
 
 function installFocusTrackingForDocument(doc) {
   const focusWithinSet = new Set();
-  doc.addEventListener('focusin', (event) => {
+  doc.addEventListener('focusin', event => {
     addPathToFocusWithinSet(focusWithinSet, event.composedPath());
   });
-  doc.addEventListener('focusout', (event) => {
+  doc.addEventListener('focusout', event => {
     const newPath = event.relatedTarget ? event.composedPath() : [];
     removePathFromFocusWithinSet(focusWithinSet, newPath);
   });
@@ -129,21 +134,26 @@ function installFocusTrackingForDocument(doc) {
   return focusWithinSet;
 }
 
-export default (userSettings) => {
+export default userSettings => {
   const shouldUpdate = userSettings?.shouldUpdate ?? defaultShouldUpdate;
-  const isMap = userSettings?.isMap ?? ((x) => x?.constructor === Object);
-  const mapIter = userSettings?.mapIter ?? ((m) => Object.entries(m));
+  const isMap = userSettings?.isMap ?? (x => x?.constructor === Object);
+  const mapIter = userSettings?.mapIter ?? (m => Object.entries(m));
   const mapGet = userSettings?.mapGet ?? ((m, k) => m[k]);
   const mapMerge = userSettings?.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
-  const newMap = userSettings?.newMap ?? ((obj) => ({...obj}));
-  const mapPut = userSettings?.mapPut ?? ((m, k, v) => { m[k] = v; return m; });
+  const newMap = userSettings?.newMap ?? (obj => ({...obj}));
+  const mapPut =
+    userSettings?.mapPut ??
+    ((m, k, v) => {
+      m[k] = v;
+      return m;
+    });
   const isSeq = userSettings?.isSeq ?? isIterable;
-  const seqIter = userSettings?.seqIter ?? ((s) => s);
-  const convertTagName = userSettings?.convertTagName ?? ((t) => t);
-  const convertPropName = userSettings?.convertPropName ?? ((p) => p);
-  const convertStyleName = userSettings?.convertStyleName ?? ((s) => s);
-  const convertDataName = userSettings?.convertDataName ?? ((d) => d);
-  const convertClassName = userSettings?.convertClassName ?? ((c) => c);
+  const seqIter = userSettings?.seqIter ?? (s => s);
+  const convertTagName = userSettings?.convertTagName ?? (t => t);
+  const convertPropName = userSettings?.convertPropName ?? (p => p);
+  const convertStyleName = userSettings?.convertStyleName ?? (s => s);
+  const convertDataName = userSettings?.convertDataName ?? (d => d);
+  const convertClassName = userSettings?.convertClassName ?? (c => c);
   const listenerKey = userSettings?.listenerKey ?? 'listener';
   const captureKey = userSettings?.captureKey ?? 'capture';
   const passiveKey = userSettings?.passiveKey ?? 'passive';
@@ -244,86 +254,86 @@ export default (userSettings) => {
 
     // Handle new and changed props
     for (const [name, newValue] of mapIter(props)) {
-        const propName = convertPropName(name);
-        const oldValue = mapGet(oldProps, name);
+      const propName = convertPropName(name);
+      const oldValue = mapGet(oldProps, name);
 
-        if (Object.is(newValue, oldValue)) continue;
+      if (Object.is(newValue, oldValue)) continue;
 
-        switch (propName) {
-            case '$styling': {
-                if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-                reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-                break;
-            }
-            case '$classes': {
-                if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
-                reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
-                break;
-            }
-            case '$attrs': {
-                if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-                reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-                break;
-            }
-            case '$dataset': {
-                if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-                reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
-                break;
-            }
-            default: {
-                if (isHtml) {
-                    const originalProps = nodeState.originalProps;
-                    if (!(propName in originalProps)) {
-                        originalProps[propName] = target[propName];
-                    }
-                    if (newValue === undefined) {
-                        target[propName] = originalProps[propName];
-                    } else {
-                        target[propName] = newValue;
-                    }
-                } else {
-                    if (newValue === undefined) {
-                        target.removeAttribute(propName);
-                    } else {
-                        target.setAttribute(propName, newValue);
-                    }
-                }
-                break;
-            }
+      switch (propName) {
+        case '$styling': {
+          if (!isMap(newValue)) throw new Error('invalid value for styling prop');
+          reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
         }
+        case '$classes': {
+          if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
+          reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
+          break;
+        }
+        case '$attrs': {
+          if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
+          reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        }
+        case '$dataset': {
+          if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
+          reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          break;
+        }
+        default: {
+          if (isHtml) {
+            const originalProps = nodeState.originalProps;
+            if (!(propName in originalProps)) {
+              originalProps[propName] = target[propName];
+            }
+            if (newValue === undefined) {
+              target[propName] = originalProps[propName];
+            } else {
+              target[propName] = newValue;
+            }
+          } else {
+            if (newValue === undefined) {
+              target.removeAttribute(propName);
+            } else {
+              target.setAttribute(propName, newValue);
+            }
+          }
+          break;
+        }
+      }
     }
 
     // Handle removed props
     for (const [name, oldValue] of mapIter(oldProps)) {
-        if (mapGet(props, name) !== undefined) continue; // it wasn't removed
+      if (mapGet(props, name) !== undefined) continue; // it wasn't removed
 
-        const propName = convertPropName(name);
-        switch (propName) {
-            case '$styling':
-                reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
-                break;
-            case '$classes':
-                reconcileElementClasses(target, oldValue ?? [], []);
-                break;
-            case '$attrs':
-                reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
-                break;
-            case '$dataset':
-                reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
-                break;
-            default: {
-                if (isHtml) {
-                    const originalProps = nodeState.originalProps;
-                    if (propName in originalProps) {
-                        target[propName] = originalProps[propName];
-                        delete originalProps[propName];
-                    }
-                } else {
-                    target.removeAttribute(propName);
-                }
-                break;
+      const propName = convertPropName(name);
+      switch (propName) {
+        case '$styling':
+          reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+          break;
+        case '$classes':
+          reconcileElementClasses(target, oldValue ?? [], []);
+          break;
+        case '$attrs':
+          reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+          break;
+        case '$dataset':
+          reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+          break;
+        default: {
+          if (isHtml) {
+            const originalProps = nodeState.originalProps;
+            if (propName in originalProps) {
+              target[propName] = originalProps[propName];
+              delete originalProps[propName];
             }
+          } else {
+            target.removeAttribute(propName);
+          }
+          break;
         }
+      }
     }
   }
 
@@ -335,9 +345,9 @@ export default (userSettings) => {
         if (typeof listener === 'function') {
           target.addEventListener(name, listener);
         } else if (listener != null) {
-          target.addEventListener(name, mapGet(listener, listenerKey), { 
-            capture: !!mapGet(listener, captureKey), 
-            passive: !!mapGet(listener, passiveKey) 
+          target.addEventListener(name, mapGet(listener, listenerKey), {
+            capture: !!mapGet(listener, captureKey),
+            passive: !!mapGet(listener, passiveKey),
           });
         }
       }
@@ -351,15 +361,19 @@ export default (userSettings) => {
         if (typeof oldListener === 'function') {
           target.removeEventListener(name, oldListener);
         } else if (oldListener != null) {
-          target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
+          target.removeEventListener(
+            name,
+            mapGet(oldListener, listenerKey),
+            !!mapGet(oldListener, captureKey),
+          );
         }
-        
+
         if (typeof listener === 'function') {
           target.addEventListener(name, listener);
         } else if (listener != null) {
-          target.addEventListener(name, mapGet(listener, listenerKey), { 
-            capture: !!mapGet(listener, captureKey), 
-            passive: !!mapGet(listener, passiveKey) 
+          target.addEventListener(name, mapGet(listener, listenerKey), {
+            capture: !!mapGet(listener, captureKey),
+            passive: !!mapGet(listener, passiveKey),
           });
         }
       }
@@ -369,7 +383,11 @@ export default (userSettings) => {
         if (typeof oldListener === 'function') {
           target.removeEventListener(name, oldListener);
         } else if (oldListener != null) {
-          target.removeEventListener(name, mapGet(oldListener, listenerKey), !!mapGet(oldListener, captureKey));
+          target.removeEventListener(
+            name,
+            mapGet(oldListener, listenerKey),
+            !!mapGet(oldListener, captureKey),
+          );
         }
       }
     }
@@ -459,7 +477,6 @@ export default (userSettings) => {
   function cleanupTarget(target) {
     const state = target[NODE_STATE];
     if (state) {
-
       switch (state.vdom.type) {
         case ELEMENT_NODE:
           reconcileElementProps(target, {});
@@ -509,7 +526,7 @@ export default (userSettings) => {
 
       let oldNodesPoolForTag = oldVNodeNodesPool.get(vdom.tag);
       if (!oldNodesPoolForTag) {
-        oldNodesPoolForTag = { nodesForKey: new Map(), nodesWithoutKey: [] };
+        oldNodesPoolForTag = {nodesForKey: new Map(), nodesWithoutKey: []};
         oldVNodeNodesPool.set(vdom.tag, oldNodesPoolForTag);
       }
 
@@ -539,7 +556,10 @@ export default (userSettings) => {
             if (pool && pool.length > 0) {
               newDomNode = pool.shift();
               const state = newDomNode[NODE_STATE];
-              if (shouldUpdate(state.vdom.args, newVdom.args)) {
+              if (
+                shouldUpdate(state.vdom.args, newVdom.args) ||
+                shouldUpdate(state.vdom.hooks, newVdom.hooks)
+              ) {
                 state.newVdom = newVdom;
               }
             } else {
@@ -550,7 +570,10 @@ export default (userSettings) => {
             if (unkeyedOldNode) {
               newDomNode = unkeyedOldNode;
               const state = newDomNode[NODE_STATE];
-              if (shouldUpdate(state.vdom.args, newVdom.args)) {
+              if (
+                shouldUpdate(state.vdom.args, newVdom.args) ||
+                shouldUpdate(state.vdom.hooks, newVdom.hooks)
+              ) {
                 state.newVdom = newVdom;
               }
             } else {
@@ -583,7 +606,11 @@ export default (userSettings) => {
           const newChild = newDomChildren[i];
           const existingChildAtPosition = target.childNodes[i];
           if (newChild !== existingChildAtPosition) {
-            (newChild.isConnected ? moveBefore : insertBefore).call(target, newChild, existingChildAtPosition);
+            (newChild.isConnected ? moveBefore : insertBefore).call(
+              target,
+              newChild,
+              existingChildAtPosition,
+            );
           }
           const state = newChild[NODE_STATE];
           if (state?.newVdom) {
@@ -675,7 +702,10 @@ export default (userSettings) => {
     if (vdom instanceof VNode) {
       if (state) {
         if (state.vdom.type === vdom.type) {
-          if (shouldUpdate(state.vdom.args, vdom.args)) {
+          if (
+            shouldUpdate(state.vdom.args, vdom.args) ||
+            shouldUpdate(state.vdom.hooks, vdom.hooks)
+          ) {
             state.newVdom = vdom;
             reconcileNode(target);
           }
@@ -687,13 +717,18 @@ export default (userSettings) => {
       switch (vdom.type) {
         case ELEMENT_NODE:
         case OPAQUE_NODE:
-          if (0 !== target.nodeName.localeCompare(convertTagName(vdom.tag), undefined, { sensitivity: 'base' })) {
+          if (
+            0 !==
+            target.nodeName.localeCompare(convertTagName(vdom.tag), undefined, {
+              sensitivity: 'base',
+            })
+          ) {
             throw new Error('incompatible target for vdom');
           }
           break;
       }
 
-      target[NODE_STATE] = { originalProps: {}, newVdom: vdom };
+      target[NODE_STATE] = {originalProps: {}, newVdom: vdom};
       try {
         vdom.hooks?.$attach?.(target);
         if (vdom.type === SPECIAL_NODE) {
@@ -709,9 +744,30 @@ export default (userSettings) => {
     throw new Error('invalid vdom');
   }
 
-  return { h, alias, special, reconcile, settings: {
-    shouldUpdate, isMap, mapIter, mapGet, mapMerge, newMap, mapPut, isSeq, flattenSeq, seqIter,
-    convertTagName, convertPropName, convertStyleName, convertDataName, convertClassName,
-    listenerKey, captureKey, passiveKey
-  } };
-}
+  return {
+    h,
+    alias,
+    special,
+    reconcile,
+    settings: {
+      shouldUpdate,
+      isMap,
+      mapIter,
+      mapGet,
+      mapMerge,
+      newMap,
+      mapPut,
+      isSeq,
+      flattenSeq,
+      seqIter,
+      convertTagName,
+      convertPropName,
+      convertStyleName,
+      convertDataName,
+      convertClassName,
+      listenerKey,
+      captureKey,
+      passiveKey,
+    },
+  };
+};

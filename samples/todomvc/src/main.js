@@ -1,6 +1,6 @@
 import * as dd from '@3sln/dodo';
 import app from './app.js';
-import { store } from './store.js';
+import {store} from './store.js';
 
 const target = document.querySelector('.todoapp');
 

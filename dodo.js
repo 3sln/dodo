@@ -39,22 +39,25 @@ function defaultFlattenSeq(items) {
 }
 
 function isIterable(x) {
-  return Array.isArray(x) || (x != null && typeof x[Symbol.iterator] === 'function' && typeof x !== 'string');
+  return (
+    Array.isArray(x) ||
+    (x != null && typeof x[Symbol.iterator] === 'function' && typeof x !== 'string')
+  );
 }
 
 export const settings = {
   shouldUpdate: defaultShouldUpdate,
-  isMap: (x) => x?.constructor === Object,
-  mapIter: (m) => Object.entries(m),
+  isMap: x => x?.constructor === Object,
+  mapIter: m => Object.entries(m),
   mapGet: (m, k) => m[k],
   isSeq: isIterable,
   flattenSeq: defaultFlattenSeq,
-  seqIter: (s) => s,
-  convertTagName: (t) => t,
-  convertPropName: (p) => p,
-  convertStyleName: (s) => s,
-  convertDataName: (d) => d,
-  convertClassName: (c) => c,
+  seqIter: s => s,
+  convertTagName: t => t,
+  convertPropName: p => p,
+  convertStyleName: s => s,
+  convertDataName: d => d,
+  convertClassName: c => c,
 };
 
 function flattenVNodeChildrenIntoArray(array, children) {
@@ -107,7 +110,10 @@ export function h(tag, props, ...children) {
     children.unshift(props);
     props = EMPTY_OBJECT;
   }
-  return new VNode(ELEMENT_NODE, settings.convertTagName(tag), [props ?? EMPTY_OBJECT, ...children]);
+  return new VNode(ELEMENT_NODE, settings.convertTagName(tag), [
+    props ?? EMPTY_OBJECT,
+    ...children,
+  ]);
 }
 
 export function o(tag, props) {
@@ -293,7 +299,10 @@ function reconcileListeners(target, hooks) {
           target.addEventListener(name, listener);
           break;
         case 'object':
-          target.addEventListener(name, listener.listener, { capture: listener.capture, passive: listener.passive });
+          target.addEventListener(name, listener.listener, {
+            capture: listener.capture,
+            passive: listener.passive,
+          });
           break;
       }
     }
@@ -321,7 +330,10 @@ function reconcileListeners(target, hooks) {
           target.addEventListener(name, listener);
           break;
         case 'object':
-          target.addEventListener(name, listener.listener, { capture: listener.capture, passive: listener.passive });
+          target.addEventListener(name, listener.listener, {
+            capture: listener.capture,
+            passive: listener.passive,
+          });
           break;
       }
     }
@@ -345,8 +357,10 @@ function reconcileListeners(target, hooks) {
 function newElementNamespace(parentNode, newNodeTag) {
   if (parentNode.namespaceURI === 'http://www.w3.org/1999/xhtml') {
     switch (newNodeTag) {
-      case 'svg': return 'http://www.w3.org/2000/svg';
-      case 'math': return 'http://www.w3.org/1998/Math/MathML';
+      case 'svg':
+        return 'http://www.w3.org/2000/svg';
+      case 'math':
+        return 'http://www.w3.org/1998/Math/MathML';
     }
   }
   return parentNode.namespaceURI ?? parentNode.host?.namespaceURI ?? 'http://www.w3.org/1999/xhtml';
@@ -404,7 +418,7 @@ function reconcileNode(target) {
 
 function createElementNode(parentNode, tag, vdom) {
   const el = parentNode.ownerDocument.createElementNS(newElementNamespace(parentNode, tag), tag);
-  el[NODE_STATE] = { originalProps: {}, newVdom: vdom };
+  el[NODE_STATE] = {originalProps: {}, newVdom: vdom};
   return el;
 }
 
@@ -466,10 +480,10 @@ function removePathFromFocusWithinSet(set, newPath) {
 
 function installFocusTrackingForDocument(doc) {
   const focusWithinSet = new Set();
-  doc.addEventListener('focusin', (event) => {
+  doc.addEventListener('focusin', event => {
     addPathToFocusWithinSet(focusWithinSet, event.composedPath());
   });
-  doc.addEventListener('focusout', (event) => {
+  doc.addEventListener('focusout', event => {
     const newPath = event.relatedTarget ? event.composedPath() : [];
     removePathFromFocusWithinSet(focusWithinSet, newPath);
   });
@@ -524,7 +538,7 @@ function reconcileElementChildren(target, childrenIterable) {
 
     let oldNodesPoolForTag = oldVNodeNodesPool.get(vdom.tag);
     if (!oldNodesPoolForTag) {
-      oldNodesPoolForTag = { nodesForKey: new Map(), nodesWithoutKey: [] };
+      oldNodesPoolForTag = {nodesForKey: new Map(), nodesWithoutKey: []};
       oldVNodeNodesPool.set(vdom.tag, oldNodesPoolForTag);
     }
 
@@ -597,7 +611,11 @@ function reconcileElementChildren(target, childrenIterable) {
       const newChild = newDomChildren[i];
       const existingChildAtPosition = target.childNodes[i];
       if (newChild !== existingChildAtPosition) {
-        (newChild.isConnected ? moveBefore : insertBefore).call(target, newChild, existingChildAtPosition);
+        (newChild.isConnected ? moveBefore : insertBefore).call(
+          target,
+          newChild,
+          existingChildAtPosition,
+        );
       }
       const state = newChild[NODE_STATE];
       if (state?.newVdom) {
@@ -673,13 +691,13 @@ export function reconcile(target, vdom) {
     switch (vdom.type) {
       case ELEMENT_NODE:
       case OPAQUE_NODE:
-        if (0 !== target.nodeName.localeCompare(vdom.tag, undefined, { sensitivity: 'base' })) {
+        if (0 !== target.nodeName.localeCompare(vdom.tag, undefined, {sensitivity: 'base'})) {
           throw new Error('incompatible target for vdom');
         }
         break;
     }
 
-    target[NODE_STATE] = state = { originalProps: {}, newVdom: vdom };
+    target[NODE_STATE] = state = {originalProps: {}, newVdom: vdom};
     try {
       vdom.hooks?.$attach?.(target);
       if (vdom.type === SPECIAL_NODE) {

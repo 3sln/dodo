@@ -23,10 +23,7 @@ export const store = {
   addTodo(title) {
     state = {
       ...state,
-      todos: [
-        ...state.todos,
-        { id: Date.now(), title, completed: false },
-      ],
+      todos: [...state.todos, {id: Date.now(), title, completed: false}],
     };
     notify();
   },
@@ -42,9 +39,7 @@ export const store = {
   toggleTodo(todo) {
     state = {
       ...state,
-      todos: state.todos.map(t =>
-        t === todo ? { ...t, completed: !t.completed } : t
-      ),
+      todos: state.todos.map(t => (t === todo ? {...t, completed: !t.completed} : t)),
     };
     notify();
   },
@@ -52,7 +47,7 @@ export const store = {
   toggleAll(completed) {
     state = {
       ...state,
-      todos: state.todos.map(t => ({ ...t, completed }))
+      todos: state.todos.map(t => ({...t, completed})),
     };
     notify();
   },
@@ -66,7 +61,7 @@ export const store = {
   },
 
   startEditing(todo) {
-    state = { ...state, editingTodo: todo };
+    state = {...state, editingTodo: todo};
     notify();
   },
 
@@ -78,7 +73,7 @@ export const store = {
     } else {
       state = {
         ...state,
-        todos: state.todos.map(t => (t === todo ? { ...t, title } : t)),
+        todos: state.todos.map(t => (t === todo ? {...t, title} : t)),
         editingTodo: null,
       };
       notify();
@@ -87,19 +82,19 @@ export const store = {
 
   cancelEditing(todo) {
     if (state.editingTodo === todo) {
-      state = { ...state, editingTodo: null };
+      state = {...state, editingTodo: null};
       notify();
     }
   },
 
   setFilter(filter) {
-    state = { ...state, filter };
+    state = {...state, filter};
     notify();
   },
 
   init() {
     notify();
-  }
+  },
 };
 
 // Handle hash changes for filtering

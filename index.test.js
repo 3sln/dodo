@@ -1,11 +1,6 @@
-import { test, expect, describe, beforeEach, mock } from 'bun:test';
-import { Window } from 'happy-dom';
-import {
-  h,
-  alias,
-  special,
-  reconcile,
-} from './index.js';
+import {test, expect, describe, beforeEach, mock} from 'bun:test';
+import {Window} from 'happy-dom';
+import {h, alias, special, reconcile} from './index.js';
 
 let container;
 
@@ -17,9 +12,13 @@ beforeEach(() => {
 
 describe('reconcile function', () => {
   test('should reconcile an ELEMENT_NODE onto a matching DOM element', () => {
-    const vdom = h('div', {
-      id: 'root'
-    }, h('span', null, 'Hello'));
+    const vdom = h(
+      'div',
+      {
+        id: 'root',
+      },
+      h('span', null, 'Hello'),
+    );
     reconcile(container, vdom);
     expect(container.id).toEqual('root');
     expect(container.innerHTML).toEqual('<span>Hello</span>');
@@ -32,7 +31,7 @@ describe('reconcile function', () => {
 
   test('should reconcile an OPAQUE_NODE onto a matching DOM element', () => {
     const vdom = h('div', {
-      $classes: ['opaque-container']
+      $classes: ['opaque-container'],
     }).opaque();
     reconcile(container, vdom);
     expect(container.className).toEqual('opaque-container');
@@ -40,13 +39,13 @@ describe('reconcile function', () => {
 
   test('should throw an error when reconciling an OPAQUE_NODE onto a mismatched DOM element', () => {
     const vdom = h('span', {
-      class: 'opaque-container'
+      class: 'opaque-container',
     }).opaque();
     expect(() => reconcile(container, vdom)).toThrow('incompatible target for vdom');
   });
 
   test('should reconcile an ALIAS_NODE onto any DOM element', () => {
-    const myAlias = alias((text) => h('p', null, text));
+    const myAlias = alias(text => h('p', null, text));
     const vdom = myAlias('Component Content');
     reconcile(container, vdom);
     expect(container.innerHTML).toEqual('<p>Component Content</p>');
@@ -79,14 +78,14 @@ describe('h function (ELEMENT_NODE) specific behavior', () => {
   test('should update props on a re-render', () => {
     const vdom1 = h('div', {
       id: 'my-div',
-      disabled: false
+      disabled: false,
     });
     reconcile(rootDiv, vdom1);
     expect(rootDiv.disabled).toBe(false);
 
     const vdom2 = h('div', {
       id: 'my-div',
-      disabled: true
+      disabled: true,
     });
     reconcile(rootDiv, vdom2);
     expect(rootDiv.disabled).toBe(true);
@@ -119,7 +118,6 @@ describe('h function (ELEMENT_NODE) specific behavior', () => {
   });
 });
 
-
 describe('o function (OPAQUE_NODE) specific behavior', () => {
   let rootDiv;
   beforeEach(() => {
@@ -130,7 +128,7 @@ describe('o function (OPAQUE_NODE) specific behavior', () => {
 
   test('should create an opaque node with props but not touch children', () => {
     const vdom = h('div', {
-      id: 'opaque-div'
+      id: 'opaque-div',
     }).opaque();
     reconcile(rootDiv, vdom);
     expect(rootDiv.id).toEqual('opaque-div');
@@ -140,16 +138,16 @@ describe('o function (OPAQUE_NODE) specific behavior', () => {
 
 describe('alias function (ALIAS_NODE) specific behavior', () => {
   test('should re-render when component props change', () => {
-    const myComponent = alias((props) => h('span', null, props.text));
+    const myComponent = alias(props => h('span', null, props.text));
     const vdom1 = myComponent({
-      text: 'Hello'
+      text: 'Hello',
     });
     reconcile(container, vdom1);
     const span = container.querySelector('span');
     expect(span.textContent).toEqual('Hello');
 
     const vdom2 = myComponent({
-      text: 'World'
+      text: 'World',
     });
     reconcile(container, vdom2);
     expect(span.textContent).toEqual('World');
@@ -193,8 +191,10 @@ describe('special function (SPECIAL_NODE) specific behavior', () => {
 describe('Event Listeners', () => {
   test('should call the listener when the event is triggered', () => {
     let clicked = false;
-    const clickHandler = () => { clicked = true; };
-    const button = h('button', null, 'Click me').on({ click: clickHandler });
+    const clickHandler = () => {
+      clicked = true;
+    };
+    const button = h('button', null, 'Click me').on({click: clickHandler});
     reconcile(container, [button]);
     const renderedButton = container.firstChild;
     renderedButton.dispatchEvent(new window.MouseEvent('click'));
@@ -203,8 +203,10 @@ describe('Event Listeners', () => {
 
   test('should remove the old listener when the node is replaced', () => {
     let oldListenerCalled = false;
-    const oldListener = () => { oldListenerCalled = true; };
-    const oldNode = [h('button', null, 'Old button').on({ click: oldListener })];
+    const oldListener = () => {
+      oldListenerCalled = true;
+    };
+    const oldNode = [h('button', null, 'Old button').on({click: oldListener})];
     reconcile(container, oldNode);
     const oldButtonElement = container.firstChild;
     const newNode = [h('button', null, 'New button')];
@@ -217,16 +219,20 @@ describe('Event Listeners', () => {
 describe('VNode lifecycle hooks', () => {
   test('should call the $attach hook when the node is created', () => {
     let created = false;
-    const createHandler = () => { created = true; };
-    const div = h('div').on({ $attach: createHandler });
+    const createHandler = () => {
+      created = true;
+    };
+    const div = h('div').on({$attach: createHandler});
     reconcile(container, [div]);
     expect(created).toBe(true);
   });
 
   test('should call the $detach hook when the node is removed', () => {
     let removed = false;
-    const removeHandler = () => { removed = true; };
-    const div = h('div').on({ $detach: removeHandler });
+    const removeHandler = () => {
+      removed = true;
+    };
+    const div = h('div').on({$detach: removeHandler});
     reconcile(container, [div]);
     reconcile(container, null);
     expect(removed).toBe(true);
@@ -234,12 +240,14 @@ describe('VNode lifecycle hooks', () => {
 
   test('should call the $update hook after every reconciliation', () => {
     let reconcileCount = 0;
-    const reconcileHandler = () => { reconcileCount++; };
+    const reconcileHandler = () => {
+      reconcileCount++;
+    };
 
-    reconcile(container, [h('div').on({ $update: reconcileHandler })]);
+    reconcile(container, [h('div').on({$update: reconcileHandler})]);
     expect(reconcileCount).toBe(1);
 
-    reconcile(container, [h('div', { id: 'updated' }).on({ $update: reconcileHandler })]);
+    reconcile(container, [h('div', {id: 'updated'}).on({$update: reconcileHandler})]);
     expect(reconcileCount).toBe(2);
 
     reconcile(container, null);

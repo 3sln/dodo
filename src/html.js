@@ -1,9 +1,9 @@
-import { h } from '../index.js';
+import {h} from '../index.js';
 
 // Document metadata
 export const title = (...args) => h('title', ...args);
-export const meta = (props) => h('meta', props);
-export const link = (props) => h('link', props);
+export const meta = props => h('meta', props);
+export const link = props => h('link', props);
 export const style = (...args) => h('style', ...args);
 export const script = (...args) => h('script', ...args);
 export const noscript = (...args) => h('noscript', ...args);
@@ -67,21 +67,21 @@ export const u = (...args) => h('u', ...args);
 export const wbr = () => h('wbr');
 
 // Image and multimedia
-export const area = (props) => h('area', props);
+export const area = props => h('area', props);
 export const audio = (...args) => h('audio', ...args);
-export const img = (props) => h('img', props);
+export const img = props => h('img', props);
 export const map = (...args) => h('map', ...args);
-export const track = (props) => h('track', props);
+export const track = props => h('track', props);
 export const video = (...args) => h('video', ...args);
 
 // Embedded content
-export const embed = (props) => h('embed', props);
+export const embed = props => h('embed', props);
 export const iframe = (...args) => h('iframe', ...args);
 export const object = (...args) => h('object', ...args);
-export const param = (props) => h('param', props);
+export const param = props => h('param', props);
 export const picture = (...args) => h('picture', ...args);
 export const portal = (...args) => h('portal', ...args);
-export const source = (props) => h('source', props);
+export const source = props => h('source', props);
 
 // SVG and MathML
 export const svg = (...args) => h('svg', ...args);
@@ -92,7 +92,7 @@ export const canvas = (...args) => h('canvas', ...args);
 
 // Table content
 export const caption = (...args) => h('caption', ...args);
-export const col = (props) => h('col', props);
+export const col = props => h('col', props);
 export const colgroup = (...args) => h('colgroup', ...args);
 export const table = (...args) => h('table', ...args);
 export const tbody = (...args) => h('tbody', ...args);
@@ -107,7 +107,7 @@ export const button = (...args) => h('button', ...args);
 export const datalist = (...args) => h('datalist', ...args);
 export const fieldset = (...args) => h('fieldset', ...args);
 export const form = (...args) => h('form', ...args);
-export const input = (props) => h('input', props);
+export const input = props => h('input', props);
 export const label = (...args) => h('label', ...args);
 export const legend = (...args) => h('legend', ...args);
 export const meter = (...args) => h('meter', ...args);
