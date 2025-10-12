@@ -1,16 +1,23 @@
-# Welcome to the Dodo Deck!
+# Introduction to Dodo
 
-A minimal, configurable virtual DOM library.
+Dodo is a minimal, highly configurable virtual DOM library. It is not a framework. Instead, it provides the core tools to efficiently create, update, and manage DOM elements based on a virtual representation, giving you full control over your application's rendering process and data model.
 
-This deck provides live examples and documentation for Dodo's core concepts and APIs.
+## Core Primitives
+
+Everything in Dodo revolves around a few key functions:
+
+- **`h(tag, props, ...children)`**: The core function for creating a virtual element node.
+- **`alias(fn)`**: A wrapper for creating memoized, pure-function components.
+- **`special(config)`**: A powerful tool for creating components with lifecycle hooks (`attach`, `update`, `detach`), perfect for integrating with third-party libraries or browser APIs.
+
+For convenience, Dodo also provides helper functions that look like HTML tags (`div`, `p`, `h1`, etc.). You build a tree of these virtual nodes and then use the `reconcile(domNode, vdomTree)` function to make the real DOM match your virtual tree.
 
 <deck-demo id="dodo-hello-world" src="/demos/hello-world.js"></deck-demo>
 
-## Core Concepts
+## Customization
 
-- **VDOM Factory:** The library exports a `vdom(settings)` factory to create custom instances. The default export is a pre-configured instance.
-- **HTML Helpers:** Simple functions like `div()`, `p()`, `span()` are exported for convenience.
-- **`$`-Prefixed Props:** Special props that Dodo intercepts are prefixed with a `$` to avoid conflicts with standard properties (e.g., `$classes`, `$styling`, `$attrs`, `$dataset`).
-- **`.key()`:** Chain `.key('unique-id')` to any VNode in a list to enable efficient, keyed reconciliation.
-- **`.on()`:** Chain `.on({ event: handler })` to any VNode to attach event listeners or lifecycle hooks (`$attach`, `$detach`, `$update`).
-- **`.opaque()`**: Marks an element node as opaque, meaning Dodo will manage its props but not its children.
+Dodo's real power lies in its configurability. The default export is a pre-configured instance that works with standard JavaScript objects and arrays. 
+
+However, by using the `dodo(settings)` factory, you can replace the underlying data structure handlers. This allows Dodo to work seamlessly with other programming paradigms or languages—like ClojureScript—that use different data structures.
+
+See the <a href="?c=%2Fcustomization.md"><strong>Customization</strong></a> card for a live example of this in action.
