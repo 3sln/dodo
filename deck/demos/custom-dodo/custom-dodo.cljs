@@ -40,6 +40,5 @@
     (.panel driver "Demo" 
       (fn [container signal]
         (let [sub (.subscribe text$ (fn [text]
-          ;; Note: We are passing a JS array here, which our custom `isSeq` handles.
           (d/reconcile container [(my-component text)])))]
           (.addEventListener signal "abort" #(.unsubscribe sub)))))))
