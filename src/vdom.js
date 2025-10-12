@@ -149,17 +149,35 @@ export default userSettings => {
     });
   const isSeq = userSettings?.isSeq ?? isIterable;
   const seqIter = userSettings?.seqIter ?? (s => s);
-  const convertTagName = userSettings?.convertTagName ?? (t => t);
-  const convertPropName = userSettings?.convertPropName ?? (p => p);
-  const convertStyleName = userSettings?.convertStyleName ?? (s => s);
-  const convertDataName = userSettings?.convertDataName ?? (d => d);
-  const convertClassName = userSettings?.convertClassName ?? (c => c);
+  const convertName = userSettings?.convertName ?? (x => x);
+  const convertTagName = userSettings?.convertTagName ?? convertName;
+  const convertPropName = userSettings?.convertPropName ?? convertName;
+  const convertStyleName = userSettings?.convertStyleName ?? convertName;
+  const convertDataName = userSettings?.convertDataName ?? convertName;
+  const convertClassName = userSettings?.convertClassName ?? convertName;
+  const convertHookName = userSettings?.convertHookName ?? convertName;
   const listenerKey = userSettings?.listenerKey ?? 'listener';
   const captureKey = userSettings?.captureKey ?? 'capture';
   const passiveKey = userSettings?.passiveKey ?? 'passive';
 
+  const EMPTY_MAP = newMap({});
+
+  function toIterator(iterableOrIterator) {
+    if (iterableOrIterator == null) return [][Symbol.iterator]();
+    if (typeof iterableOrIterator[Symbol.iterator] === 'function') {
+      return iterableOrIterator[Symbol.iterator]();
+    }
+    if (typeof iterableOrIterator.next === 'function') {
+      return iterableOrIterator;
+    }
+    return [iterableOrIterator][Symbol.iterator]();
+  }
+
   function flattenSeqIntoArray(array, items, excludeFalsey) {
-    for (const item of seqIter(items)) {
+    const iterator = toIterator(seqIter(items));
+    let result;
+    while (!(result = iterator.next()).done) {
+      const item = result.value;
       if (excludeFalsey && (item == null || item == false)) {
         continue;
       }
@@ -167,7 +185,7 @@ export default userSettings => {
       if (!isSeq(item)) {
         array.push(item);
       } else {
-        flattenSeqIntoArray(array, item);
+        flattenSeqIntoArray(array, item, excludeFalsey);
       }
     }
   }
@@ -186,7 +204,7 @@ export default userSettings => {
       if (!isSeq(item)) {
         array.push(item);
       } else {
-        flattenVNodeChildrenIntoArray(array, seqIter(item));
+        flattenSeqIntoArray(array, seqIter(item));
       }
     }
   }
@@ -199,37 +217,52 @@ export default userSettings => {
   function h(tag, props, ...children) {
     if (!isMap(props)) {
       children.unshift(props);
-      props = EMPTY_OBJECT;
+      props = EMPTY_MAP;
     }
-    return new VNode(ELEMENT_NODE, convertTagName(tag), [props ?? EMPTY_OBJECT, ...children]);
+    return new VNode(ELEMENT_NODE, convertTagName(tag), [props ?? EMPTY_MAP, ...children]);
   }
 
   function reconcileElementStyling(target, oldStyling, newStyling) {
     const style = target.style;
-    for (const [name, value] of mapIter(newStyling)) {
+    const newStylingIterator = toIterator(mapIter(newStyling));
+    let result;
+    while (!(result = newStylingIterator.next()).done) {
+      const [name, value] = result.value;
       style.setProperty(convertStyleName(name), value);
     }
-    for (const [name] of mapIter(oldStyling)) {
+    const oldStylingIterator = toIterator(mapIter(oldStyling));
+    while (!(result = oldStylingIterator.next()).done) {
+      const [name] = result.value;
       if (mapGet(newStyling, name) !== undefined) continue;
       style.removeProperty(convertStyleName(name));
     }
   }
 
   function reconcileElementAttributes(target, oldAttrs, newAttrs) {
-    for (const [name, value] of mapIter(newAttrs)) {
+    const newAttrsIterator = toIterator(mapIter(newAttrs));
+    let result;
+    while (!(result = newAttrsIterator.next()).done) {
+      const [name, value] = result.value;
       target.setAttribute(convertPropName(name), value);
     }
-    for (const [name] of mapIter(oldAttrs)) {
+    const oldAttrsIterator = toIterator(mapIter(oldAttrs));
+    while (!(result = oldAttrsIterator.next()).done) {
+      const [name] = result.value;
       if (mapGet(newAttrs, name) !== undefined) continue;
       target.removeAttribute(convertPropName(name));
     }
   }
 
   function reconcileElementDataset(target, oldDataset, newDataset) {
-    for (const [name, value] of mapIter(newDataset)) {
+    const newDatasetIterator = toIterator(mapIter(newDataset));
+    let result;
+    while (!(result = newDatasetIterator.next()).done) {
+      const [name, value] = result.value;
       target.dataset[convertDataName(name)] = value;
     }
-    for (const [name] of mapIter(oldDataset)) {
+    const oldDatasetIterator = toIterator(mapIter(oldDataset));
+    while (!(result = oldDatasetIterator.next()).done) {
+      const [name] = result.value;
       if (mapGet(newDataset, name) !== undefined) continue;
       delete target.dataset[convertDataName(name)];
     }
@@ -250,10 +283,13 @@ export default userSettings => {
   function reconcileElementProps(target, props) {
     const nodeState = target[NODE_STATE];
     const isHtml = target.namespaceURI === 'http://www.w3.org/1999/xhtml';
-    const oldProps = nodeState.vdom?.args[0] ?? EMPTY_OBJECT;
+    const oldProps = nodeState.vdom?.args[0] ?? EMPTY_MAP;
 
     // Handle new and changed props
-    for (const [name, newValue] of mapIter(props)) {
+    const propsIterator = toIterator(mapIter(props));
+    let result;
+    while (!(result = propsIterator.next()).done) {
+      const [name, newValue] = result.value;
       const propName = convertPropName(name);
       const oldValue = mapGet(oldProps, name);
 
@@ -262,7 +298,7 @@ export default userSettings => {
       switch (propName) {
         case '$styling': {
           if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-          reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          reconcileElementStyling(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
           break;
         }
         case '$classes': {
@@ -272,12 +308,12 @@ export default userSettings => {
         }
         case '$attrs': {
           if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-          reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
           break;
         }
         case '$dataset': {
           if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-          reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, newValue ?? EMPTY_OBJECT);
+          reconcileElementDataset(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
           break;
         }
         default: {
@@ -304,22 +340,24 @@ export default userSettings => {
     }
 
     // Handle removed props
-    for (const [name, oldValue] of mapIter(oldProps)) {
+    const oldPropsIterator = toIterator(mapIter(oldProps));
+    while (!(result = oldPropsIterator.next()).done) {
+      const [name, oldValue] = result.value;
       if (mapGet(props, name) !== undefined) continue; // it wasn't removed
 
       const propName = convertPropName(name);
       switch (propName) {
         case '$styling':
-          reconcileElementStyling(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+          reconcileElementStyling(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
           break;
         case '$classes':
           reconcileElementClasses(target, oldValue ?? [], []);
           break;
         case '$attrs':
-          reconcileElementAttributes(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+          reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
           break;
         case '$dataset':
-          reconcileElementDataset(target, oldValue ?? EMPTY_OBJECT, EMPTY_OBJECT);
+          reconcileElementDataset(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
           break;
         default: {
           if (isHtml) {
@@ -340,51 +378,62 @@ export default userSettings => {
   function reconcileListeners(target, hooks) {
     const state = target[NODE_STATE];
     if (!state.vdom) {
-      for (const [name, listener] of mapIter(hooks)) {
-        if (name[0] === '$') continue;
+      const hooksIterator = toIterator(mapIter(hooks));
+      let result;
+      while (!(result = hooksIterator.next()).done) {
+        const [name, listener] = result.value;
+        const hookName = convertHookName(name);
+        if (hookName[0] === '$') continue;
         if (typeof listener === 'function') {
-          target.addEventListener(name, listener);
+          target.addEventListener(hookName, listener);
         } else if (listener != null) {
-          target.addEventListener(name, mapGet(listener, listenerKey), {
+          target.addEventListener(hookName, mapGet(listener, listenerKey), {
             capture: !!mapGet(listener, captureKey),
             passive: !!mapGet(listener, passiveKey),
           });
         }
       }
     } else {
-      const oldHooks = state.vdom.hooks ?? EMPTY_OBJECT;
-      for (const [name, listener] of mapIter(hooks)) {
-        if (name[0] === '$') continue;
+      const oldHooks = state.vdom.hooks ?? EMPTY_MAP;
+      const hooksIterator = toIterator(mapIter(hooks));
+      let result;
+      while (!(result = hooksIterator.next()).done) {
+        const [name, listener] = result.value;
+        const hookName = convertHookName(name);
+        if (hookName[0] === '$') continue;
         const oldListener = mapGet(oldHooks, name);
         if (listener === oldListener) continue;
 
         if (typeof oldListener === 'function') {
-          target.removeEventListener(name, oldListener);
+          target.removeEventListener(hookName, oldListener);
         } else if (oldListener != null) {
           target.removeEventListener(
-            name,
+            hookName,
             mapGet(oldListener, listenerKey),
             !!mapGet(oldListener, captureKey),
           );
         }
 
         if (typeof listener === 'function') {
-          target.addEventListener(name, listener);
+          target.addEventListener(hookName, listener);
         } else if (listener != null) {
-          target.addEventListener(name, mapGet(listener, listenerKey), {
+          target.addEventListener(hookName, mapGet(listener, listenerKey), {
             capture: !!mapGet(listener, captureKey),
             passive: !!mapGet(listener, passiveKey),
           });
         }
       }
-      for (const [name] of mapIter(oldHooks)) {
-        if (name[0] === '$' || mapGet(hooks, name) !== undefined) continue;
+      const oldHooksIterator = toIterator(mapIter(oldHooks));
+      while (!(result = oldHooksIterator.next()).done) {
+        const [name] = result.value;
+        const hookName = convertHookName(name);
+        if (hookName[0] === '$' || mapGet(hooks, name) !== undefined) continue;
         const oldListener = mapGet(oldHooks, name);
         if (typeof oldListener === 'function') {
-          target.removeEventListener(name, oldListener);
+          target.removeEventListener(hookName, oldListener);
         } else if (oldListener != null) {
           target.removeEventListener(
-            name,
+            hookName,
             mapGet(oldListener, listenerKey),
             !!mapGet(oldListener, captureKey),
           );
@@ -402,7 +451,7 @@ export default userSettings => {
     switch (newVdom.type) {
       case ELEMENT_NODE: {
         reconcileElementProps(target, args[0]);
-        reconcileElementChildren(target, args.slice(1));
+        reconcileElementChildren(target, flattenVNodeChildren(args.slice(1)));
         break;
       }
       case OPAQUE_NODE: {
@@ -413,9 +462,9 @@ export default userSettings => {
         const innerVdom = newVdom.tag.apply(undefined, newVdom.args);
         if (innerVdom === undefined || innerVdom === null) break;
         if (isSeq(innerVdom)) {
-          reconcileElementChildren(target, innerVdom);
+          reconcileElementChildren(target, flattenSeq(innerVdom));
         } else {
-          reconcileElementChildren(target, [innerVdom]);
+          reconcileElementChildren(target, flattenVNodeChildren([innerVdom]));
         }
         break;
       }
@@ -430,7 +479,7 @@ export default userSettings => {
     }
 
     if (newVdom.hooks || oldVdom?.hooks) {
-      reconcileListeners(target, newVdom.hooks ?? EMPTY_OBJECT);
+      reconcileListeners(target, newVdom.hooks ?? EMPTY_MAP);
     }
     try {
       newVdom.hooks?.$update?.(target, newVdom, oldVdom);
@@ -508,8 +557,7 @@ export default userSettings => {
     }
   }
 
-  function reconcileElementChildren(target, childrenIterable) {
-    const newChildren = flattenVNodeChildren(childrenIterable);
+  function reconcileElementChildren(target, newChildren) {
     const oldNodesToRemove = new Set(target.childNodes);
     const oldVNodeNodesPool = new Map();
     const oldTextNodesPool = [];
@@ -519,8 +567,15 @@ export default userSettings => {
         oldTextNodesPool.push(oldChild);
         continue;
       }
-      const vdom = oldChild[NODE_STATE]?.vdom;
+
+      const oldChildState = oldChild[NODE_STATE];
+      const vdom = oldChildState?.vdom;
       if (vdom === undefined) {
+        if (oldChildState?.newVdom) {
+          throw new Error(
+            'Attempt to reconcile against a target while already working on a reconciliation against that same target, this is not allowed',
+          );
+        }
         continue;
       }
 
@@ -556,10 +611,10 @@ export default userSettings => {
             if (pool && pool.length > 0) {
               newDomNode = pool.shift();
               const state = newDomNode[NODE_STATE];
-              if (
-                shouldUpdate(state.vdom.args, newVdom.args) ||
-                shouldUpdate(state.vdom.hooks, newVdom.hooks)
-              ) {
+              if (shouldUpdate(state.vdom.args, newVdom.args)) {
+                if (state.vdom.hooks || newVdom.hooks) {
+                  reconcileListeners(target, newVdom.hooks);
+                }
                 state.newVdom = newVdom;
               }
             } else {
@@ -570,10 +625,10 @@ export default userSettings => {
             if (unkeyedOldNode) {
               newDomNode = unkeyedOldNode;
               const state = newDomNode[NODE_STATE];
-              if (
-                shouldUpdate(state.vdom.args, newVdom.args) ||
-                shouldUpdate(state.vdom.hooks, newVdom.hooks)
-              ) {
+              if (shouldUpdate(state.vdom.args, newVdom.args)) {
+                if (state.vdom.hooks || newVdom.hooks) {
+                  reconcileListeners(target, newVdom.hooks);
+                }
                 state.newVdom = newVdom;
               }
             } else {
@@ -695,7 +750,7 @@ export default userSettings => {
     }
 
     if (isSeq(vdom)) {
-      reconcileElementChildren(target, seqIter(vdom));
+      reconcileElementChildren(target, flattenSeq(vdom));
       return;
     }
 
@@ -765,6 +820,8 @@ export default userSettings => {
       convertStyleName,
       convertDataName,
       convertClassName,
+      convertHookName,
+      convertName,
       listenerKey,
       captureKey,
       passiveKey,

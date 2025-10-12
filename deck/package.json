@@ -1,0 +1,35 @@
+{
+  "name": "dodo-deck",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "deck-build"
+  },
+  "dependencies": {
+    "@3sln/dodo": "file:../",
+    "@3sln/deck": "link:@3sln/deck"
+  },
+  "devDependencies": {
+    "vite": "^5.4.20",
+    "cherry-cljs": "^0.1.11"
+  },
+  "@3sln/deck": {
+    "title": "Dodo Deck",
+    "pinned": [
+      "/introduction.md"
+    ],
+    "build": {
+      "importMap": {
+        "imports": {
+          "@3sln/dodo": "/lib/dodo/index.js"
+        }
+      },
+      "pick": {
+        "../index.js": "lib/dodo/index.js",
+        "../src": "lib/dodo/src"
+      }
+    }
+  }
+}

@@ -25,7 +25,12 @@ reconcile(container, [myVdom]);
 
 ## Core Concepts
 
-- **VDOM Factory:** The library exports a `vdom(settings)` factory to create custom instances. The default export is a pre-configured instance.
+## Core Concepts
+
+- **Factories for Customization:** Dodo is built around a factory pattern. While you can import and use a pre-configured default instance, you can also create custom instances for advanced use cases (like interoperating with ClojureScript). The library exports three factories:
+    - `dodo(settings)`: A unified factory that returns a complete API with VDOM functions, HTML helpers, and the scheduler.
+    - `vdom(settings)`: Creates just the core VDOM API (`h`, `alias`, `special`, `reconcile`, `settings`).
+    - `html({ h })`: Creates the HTML helper functions (`div`, `p`, etc.) bound to a specific `h` function.
 - **HTML Helpers:** Simple functions like `div()`, `p()`, `span()` are exported for convenience.
 - **`$`-Prefixed Props:** Special props that `dodo` intercepts are prefixed with a `$` to avoid conflicts with standard properties (e.g., `$classes`, `$styling`, `$attrs`, `$dataset`).
 - **`.key()`:** Chain `.key('unique-id')` to any VNode in a list to enable efficient, keyed reconciliation.
