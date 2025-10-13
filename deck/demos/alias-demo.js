@@ -19,7 +19,7 @@ export default driver => {
   });
 
   driver.panel('Demo', (container, signal) => {
-    const color$ = driver.property('Color', {defaultValue: '#007aff'});
+    const color$ = driver.property('Color', {defaultValue: '#007aff', type: 'color'});
     let renderCount = 0;
 
     const sub = color$.subscribe(color => {
