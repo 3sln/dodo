@@ -13,7 +13,7 @@ class VNode {
   }
 
   key(k) {
-    this.key = k;
+    this.k = k;
     return this;
   }
 
@@ -525,35 +525,33 @@ export default userSettings => {
 
   function cleanupTarget(target) {
     const state = target[NODE_STATE];
-    if (state) {
-      switch (state.vdom.type) {
-        case ELEMENT_NODE:
-          reconcileElementProps(target, {});
-          cleanupTargetChildren(target);
-          delete target[NODE_STATE];
-          break;
-        case OPAQUE_NODE:
-          reconcileElementProps(target, {});
-          delete target[NODE_STATE];
-          break;
-        case ALIAS_NODE:
-          cleanupTargetChildren(target);
-          delete target[NODE_STATE];
-          break;
-        case SPECIAL_NODE:
-          delete target[NODE_STATE];
-          try {
-            state.vdom.tag.detach?.(target);
-          } catch (err) {
-            console.error(err);
-          }
-          break;
+    if (!state) {
+      return;
+    }
+
+    const {vdom} = state;
+
+    if (vdom.hooks) {
+      reconcileListeners(target, EMPTY_MAP);
+    }
+
+    if (vdom.type === ELEMENT_NODE || vdom.type === OPAQUE_NODE) {
+      reconcileElementProps(target, EMPTY_MAP);
+    }
+
+    if (vdom.type === ELEMENT_NODE || vdom.type === ALIAS_NODE) {
+      cleanupTargetChildren(target);
+    }
+
+    delete target[NODE_STATE];
+
+    try {
+      if (vdom.type === SPECIAL_NODE) {
+        vdom.tag.detach?.(target);
       }
-      try {
-        state.vdom.hooks?.$detach?.(target);
-      } catch (err) {
-        console.error(err);
-      }
+      vdom.hooks?.$detach?.(target);
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -581,17 +579,17 @@ export default userSettings => {
 
       let oldNodesPoolForTag = oldVNodeNodesPool.get(vdom.tag);
       if (!oldNodesPoolForTag) {
-        oldNodesPoolForTag = {nodesForKey: new Map(), nodesWithoutKey: []};
+        oldNodesPoolForTag = {nodesForKey: newMap({}), nodesWithoutKey: []};
         oldVNodeNodesPool.set(vdom.tag, oldNodesPoolForTag);
       }
 
-      if (vdom.key !== undefined) {
-        let oldNodesPoolForKey = oldNodesPoolForTag.nodesForKey.get(vdom.key);
+      if (vdom.k !== undefined) {
+        let oldNodesPoolForKey = mapGet(oldNodesPoolForTag.nodesForKey, vdom.k);
         if (oldNodesPoolForKey === undefined) {
           oldNodesPoolForKey = [];
-          oldNodesPoolForTag.nodesForKey.set(vdom.key, oldNodesPoolForKey);
         }
         oldNodesPoolForKey.push(oldChild);
+        oldNodesPoolForTag.nodesForKey = mapPut(oldNodesPoolForTag.nodesForKey, vdom.k, oldNodesPoolForKey);
       } else {
         oldNodesPoolForTag.nodesWithoutKey.push(oldChild);
       }
@@ -605,15 +603,15 @@ export default userSettings => {
         if (!oldNodesPoolForTag) {
           newDomNode = createNode(target, newVdom);
         } else {
-          const key = newVdom.key;
+          const key = newVdom.k;
           if (key !== undefined) {
-            const pool = oldNodesPoolForTag.nodesForKey.get(key);
+            const pool = mapGet(oldNodesPoolForTag.nodesForKey, key);
             if (pool && pool.length > 0) {
               newDomNode = pool.shift();
               const state = newDomNode[NODE_STATE];
               if (shouldUpdate(state.vdom.args, newVdom.args)) {
                 if (state.vdom.hooks || newVdom.hooks) {
-                  reconcileListeners(target, newVdom.hooks);
+                  reconcileListeners(newDomNode, newVdom.hooks);
                 }
                 state.newVdom = newVdom;
               }
@@ -627,7 +625,7 @@ export default userSettings => {
               const state = newDomNode[NODE_STATE];
               if (shouldUpdate(state.vdom.args, newVdom.args)) {
                 if (state.vdom.hooks || newVdom.hooks) {
-                  reconcileListeners(target, newVdom.hooks);
+                  reconcileListeners(newDomNode, newVdom.hooks);
                 }
                 state.newVdom = newVdom;
               }

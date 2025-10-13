@@ -8,7 +8,14 @@ export default driver => {
       element.style.border = '1px solid green';
       element.style.padding = '1em';
     },
-    update(element, [label]) {
+    update(element, [label, visible]) {
+      if (!visible) {
+        d.reconcile(element, [
+          d.p('Component detached.')
+        ]);
+        return;
+      }
+
       element.counter++;
       d.reconcile(element, [
         d.h2(`${label}: ${element.counter}`),
@@ -27,10 +34,10 @@ export default driver => {
   });
 
   driver.panel('Demo', (container, signal) => {
-    const show$ = driver.property('Visible', {defaultValue: true});
+    const show$ = driver.property('Visible', {defaultValue: true, type: 'checkbox'});
 
     const sub = show$.subscribe(visible => {
-      d.reconcile(container, [visible ? specialCounter('Counter') : d.p('Component detached.')]);
+      d.reconcile(container, [specialCounter('Counter', visible).key('test')]);
     });
 
     signal.addEventListener('abort', () => {

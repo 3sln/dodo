@@ -6,7 +6,7 @@ export default driver => {
     return d.div(
       {
         $styling: {
-          backgroundColor: color,
+          'background-color': color,
           padding: '1em',
           color: 'white',
           borderRadius: '4px',
