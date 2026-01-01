@@ -395,7 +395,8 @@ export default userSettings => {
       }
     } else {
       const oldHooks = state.vdom.hooks ?? EMPTY_MAP;
-      const hooksIterator = toIterator(mapIter(hooks));
+      const newHooks = hooks ?? EMPTY_MAP;
+      const hooksIterator = toIterator(mapIter(newHooks));
       let result;
       while (!(result = hooksIterator.next()).done) {
         const [name, listener] = result.value;
@@ -427,7 +428,7 @@ export default userSettings => {
       while (!(result = oldHooksIterator.next()).done) {
         const [name] = result.value;
         const hookName = convertHookName(name);
-        if (hookName[0] === '$' || mapGet(hooks, name) !== undefined) continue;
+        if (hookName[0] === '$' || mapGet(newHooks, name) !== undefined) continue;
         const oldListener = mapGet(oldHooks, name);
         if (typeof oldListener === 'function') {
           target.removeEventListener(hookName, oldListener);
@@ -462,7 +463,7 @@ export default userSettings => {
         const innerVdom = newVdom.tag.apply(undefined, newVdom.args);
         if (innerVdom === undefined || innerVdom === null) break;
         if (isSeq(innerVdom)) {
-          reconcileElementChildren(target, flattenSeq(innerVdom));
+          reconcileElementChildren(target, flattenSeq(innerVdom, true));
         } else {
           reconcileElementChildren(target, flattenVNodeChildren([innerVdom]));
         }
@@ -651,6 +652,7 @@ export default userSettings => {
       target.removeChild(nodeToRemove);
     }
 
+    const window = userSettings?.window ?? target.ownerDocument.defaultView;
     const moveBefore = window.Element.prototype.moveBefore;
     const insertBefore = window.Element.prototype.insertBefore;
     if (target.isConnected) {
@@ -748,7 +750,7 @@ export default userSettings => {
     }
 
     if (isSeq(vdom)) {
-      reconcileElementChildren(target, flattenSeq(vdom));
+      reconcileElementChildren(target, flattenSeq(vdom, true));
       return;
     }
 
