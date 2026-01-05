@@ -460,7 +460,7 @@ export default userSettings => {
         break;
       }
       case ALIAS_NODE: {
-        const innerVdom = newVdom.tag.apply(undefined, newVdom.args);
+        const innerVdom = newVdom.tag.apply(target, newVdom.args);
         if (innerVdom === undefined || innerVdom === null) break;
         if (isSeq(innerVdom)) {
           reconcileElementChildren(target, flattenSeq(innerVdom, true));

@@ -1,14 +1,15 @@
 import vdomFactory from './src/vdom.js';
 import htmlFactory from './src/html.js';
-import * as scheduler from './src/scheduler.js';
+import schedulerFactory from './src/scheduler.js';
 
 function dodoFactory(userSettings) {
   const vdomInstance = vdomFactory(userSettings);
   const htmlInstance = htmlFactory(vdomInstance);
+  const schedulerInstance = schedulerFactory(userSettings);
   return {
     ...vdomInstance,
     ...htmlInstance,
-    ...scheduler,
+    ...schedulerInstance,
   };
 }
 

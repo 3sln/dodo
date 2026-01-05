@@ -152,6 +152,22 @@ describe('alias function (ALIAS_NODE) specific behavior', () => {
     reconcile(container, vdom2);
     expect(span.textContent).toEqual('World');
   });
+
+  test('should dispatch event from alias to material element', () => {
+    const eventSpy = mock();
+    const myComponent = alias(function () {
+      return h('button', null, 'Hello').on({
+        click: () => this.dispatchEvent(new window.CustomEvent('my-event', { bubbles: true }))
+      });
+    });
+
+    const vdom = myComponent().on({'my-event': eventSpy});
+    reconcile(container, [vdom]);
+    
+    container.querySelector('button').click();
+
+    expect(eventSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('special function (SPECIAL_NODE) specific behavior', () => {
