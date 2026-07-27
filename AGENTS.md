@@ -5,7 +5,7 @@ This document outlines guidelines for LLM agents interacting with the `dodo` pro
 ## 1. Architecture Overview
 
 - **VDOM Factory:** The main export of the library is a factory function, `vdom(userSettings)`, located in `src/vdom.js`. This function creates a closure containing a complete, configured VDOM API.
-- **Optional Modules:** `src/reactive.js` and `src/context.js` are opt-in extras exposed as `@3sln/dodo/reactive` and `@3sln/dodo/context`. The core must never import them; they only consume the public dodo API they are handed. Keep it that way.
+- **Optional Modules:** `src/reactive.js`, `src/context.js` and `src/observe.js` are opt-in extras exposed as `@3sln/dodo/reactive`, `@3sln/dodo/context` and `@3sln/dodo/observe`. The core must never import them; they only consume the public dodo API they are handed. Keep it that way.
 - **Configurability:** The factory accepts a `userSettings` object. This object allows the user to override default behaviors for data structure handling (`isMap`, `mapIter`, `mapMerge`, etc.) and naming conventions (`convertTagName`, etc.). This is the key to interoperability with environments like ClojureScript.
 - **Default Instance:** The root `index.js` creates and exports a default, pre-configured instance of the API for standard JavaScript usage. It also exports the `vdom` factory itself for users who need custom instances.
 - **Stateless VNodes:** `VNode` objects are simple, transient data structures. They should not hold state or direct references to DOM elements.
@@ -41,6 +41,9 @@ This section applies when you are modifying the `dodo` library itself.
 - **The Cell Protocol:** `{onDirty(fn) -> unsubscribe, getValue() -> any}`. This, not the observable protocol, is what the reactive module depends on. Adapters (`fromObservable`, `fromSubscribe`, `fromSignal`) bridge external libraries. `PENDING` means "no value yet"; errors are reported by throwing from `getValue()`.
 - **Lazy Connection:** Adapted cells subscribe upstream on their first listener and unsubscribe on their last. Preserve that — it is what stops a detached `watch` from leaking a subscription.
 - **Context Is DOM-Scoped:** Providers live on their own DOM node and consumers walk up to find them. Nothing is registered globally.
+- **Observation Targets:** `alias` and `special` wrappers are `display: contents`, and neither observer reports anything useful for a boxless element. `withElementSize` walks up via `nearestLaidOutElement` (you want the container's size); `withVisibility` gives its own node a box instead (you want *this* content's visibility, not an ancestor's). Do not "fix" one to match the other — the difference is the point.
+- **Observer Realms:** Observer constructors and `getComputedStyle` come from `element.ownerDocument.defaultView`, never from globals, so iframes and non-global test DOMs work. A missing constructor throws at connect time, which `watch` renders as its error view.
+- **Values Must Compare Cheaply:** Cells feeding `watch` should yield plain objects. `defaultShouldUpdate` reports any object that is neither an array nor a plain object as always changed, so returning a `DOMRect` would re-render on every observer callback.
 
 ---
 

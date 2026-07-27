@@ -25,13 +25,15 @@
         "imports": {
           "@3sln/dodo": "/lib/dodo/index.js",
           "@3sln/dodo/reactive": "/lib/dodo/reactive.js",
-          "@3sln/dodo/context": "/lib/dodo/context.js"
+          "@3sln/dodo/context": "/lib/dodo/context.js",
+          "@3sln/dodo/observe": "/lib/dodo/observe.js"
         }
       },
       "pick": {
         "../index.js": "lib/dodo/index.js",
         "../reactive.js": "lib/dodo/reactive.js",
         "../context.js": "lib/dodo/context.js",
+        "../observe.js": "lib/dodo/observe.js",
         "../src": "lib/dodo/src"
       }
     }

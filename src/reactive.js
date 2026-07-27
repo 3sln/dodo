@@ -77,9 +77,26 @@ export function notifier() {
  * Shared plumbing for adapted cells: connect to the upstream source on the
  * first listener and disconnect on the last. Staying disconnected while nobody
  * is listening is what keeps adapted sources from leaking subscriptions once
- * their `watch` has been detached.
+ * their `watch` has been detached — cleanup is structural rather than something
+ * every adapter has to remember.
+ *
+ * `connect` receives a `notify` callback and returns either an unsubscribe
+ * function or `{unsubscribe}`. `read` supplies `getValue`, and should cope with
+ * being called while disconnected.
+ *
+ *     const online = connectable(
+ *       notify => {
+ *         addEventListener('online', notify);
+ *         addEventListener('offline', notify);
+ *         return () => {
+ *           removeEventListener('online', notify);
+ *           removeEventListener('offline', notify);
+ *         };
+ *       },
+ *       () => navigator.onLine,
+ *     );
  */
-function connectable(connect, read) {
+export function connectable(connect, read) {
   const {listeners, notify} = notifier();
   let disconnect = null;
 
@@ -87,7 +104,14 @@ function connectable(connect, read) {
     onDirty(fn) {
       listeners.add(fn);
       if (listeners.size === 1) {
-        disconnect = toUnsubscribe(connect(notify));
+        try {
+          disconnect = toUnsubscribe(connect(notify));
+        } catch (err) {
+          // Leaving the listener in place would make the cell look connected
+          // for good, so a later subscriber would never retry.
+          listeners.delete(fn);
+          throw err;
+        }
       }
       let removed = false;
       return () => {
@@ -428,10 +452,17 @@ export default function reactiveFactory(userSettings) {
         state.source = source;
         state.lastValue = NOTHING;
         if (isCell(source)) {
-          // Subscribing can emit synchronously (a subject replaying its current
-          // value), which schedules a render that the direct call below then
-          // finds nothing left to do for.
-          state.unsubscribe = source.onDirty(() => this.invalidate(element));
+          try {
+            // Subscribing can emit synchronously (a subject replaying its
+            // current value), which schedules a render that the direct call
+            // below then finds nothing left to do for.
+            state.unsubscribe = source.onDirty(() => this.invalidate(element));
+          } catch (err) {
+            // Connecting is as much a part of reading the cell as getValue is —
+            // an adapter with no observer to attach to fails here, not there.
+            this.renderError(element, err);
+            return;
+          }
         }
       }
 

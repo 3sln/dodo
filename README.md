@@ -39,7 +39,7 @@ reconcile(container, [myVdom]);
 
 ## Optional modules
 
-Two modules ship alongside the core. Dodo's core does not import either of them,
+Three modules ship alongside the core. Dodo's core does not import any of them,
 so they cost nothing if you do not use them.
 
 ### Reactivity — `@3sln/dodo/reactive`
@@ -82,9 +82,26 @@ withContext({theme: 'dark'},
 )
 ```
 
+### Observing elements — `@3sln/dodo/observe`
+
+`ResizeObserver` and `IntersectionObserver` as Cells, plus two components built
+on them. Observers connect on the first listener and disconnect on the last, so
+a detached `watch` takes its observer with it.
+
+```javascript
+import {withElementSize, withVisibility} from '@3sln/dodo/observe';
+
+withElementSize(size => canvas({width: size.width, height: size.height}))
+
+withVisibility(visible => (visible ? chart() : skeleton()), {root: '.scroller'})
+```
+
+The underlying `elementSize` / `elementVisibility` cells are plain functions of
+an element with no dependency on dodo, usable on their own.
+
 ### Baking your own
 
-Both modules follow the same factory pattern as the rest of the project. If you
+The modules follow the same factory pattern as the rest of the project. If you
 use a custom dodo instance, or want to replace the scheduler or the error view,
 build your own. Context renders through a `watch`, so it requires the reactive
 API to be injected — build it once and pass it in:
