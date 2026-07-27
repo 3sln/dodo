@@ -14,11 +14,21 @@
     "vdom",
     "virtual dom",
     "ui",
-    "declarative"
+    "declarative",
+    "reactive",
+    "context"
   ],
+  "exports": {
+    ".": "./index.js",
+    "./reactive": "./reactive.js",
+    "./context": "./context.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
   "files": [
     "index.js",
-    "dodo.js",
+    "reactive.js",
+    "context.js",
     "src/"
   ],
   "devDependencies": {
@@ -30,6 +40,7 @@
     "access": "public"
   },
   "scripts": {
+    "test": "bun test",
     "format": "prettier -w \"**/*.js\""
   }
 }

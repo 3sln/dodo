@@ -23,11 +23,15 @@
     "build": {
       "importMap": {
         "imports": {
-          "@3sln/dodo": "/lib/dodo/index.js"
+          "@3sln/dodo": "/lib/dodo/index.js",
+          "@3sln/dodo/reactive": "/lib/dodo/reactive.js",
+          "@3sln/dodo/context": "/lib/dodo/context.js"
         }
       },
       "pick": {
         "../index.js": "lib/dodo/index.js",
+        "../reactive.js": "lib/dodo/reactive.js",
+        "../context.js": "lib/dodo/context.js",
         "../src": "lib/dodo/src"
       }
     }

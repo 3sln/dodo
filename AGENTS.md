@@ -5,6 +5,7 @@ This document outlines guidelines for LLM agents interacting with the `dodo` pro
 ## 1. Architecture Overview
 
 - **VDOM Factory:** The main export of the library is a factory function, `vdom(userSettings)`, located in `src/vdom.js`. This function creates a closure containing a complete, configured VDOM API.
+- **Optional Modules:** `src/reactive.js` and `src/context.js` are opt-in extras exposed as `@3sln/dodo/reactive` and `@3sln/dodo/context`. The core must never import them; they only consume the public dodo API they are handed. Keep it that way.
 - **Configurability:** The factory accepts a `userSettings` object. This object allows the user to override default behaviors for data structure handling (`isMap`, `mapIter`, `mapMerge`, etc.) and naming conventions (`convertTagName`, etc.). This is the key to interoperability with environments like ClojureScript.
 - **Default Instance:** The root `index.js` creates and exports a default, pre-configured instance of the API for standard JavaScript usage. It also exports the `vdom` factory itself for users who need custom instances.
 - **Stateless VNodes:** `VNode` objects are simple, transient data structures. They should not hold state or direct references to DOM elements.
@@ -26,6 +27,15 @@ This section applies when you are modifying the `dodo` library itself.
 - **`$`-Prefixed Props:** Special props that are intercepted by the `reconcile` function for specific behaviors (like `$classes` or `$styling`) are prefixed with a `$` to avoid collision with standard element properties.
 - **Immutability:** The reconciliation process relies on comparing VNode objects. Do not mutate VNodes after creation.
 - **Performance:** The default `shouldUpdate` function performs a shallow comparison on arrays and plain objects to avoid unnecessary reconciliations. Be mindful of the performance implications of any changes.
+- **Hot Path Allocation:** Reconciling one element walks its props, styling, attrs, dataset and hooks. Those loops use the internal `entryIterator`, which for the default plain-object settings reuses its result tuple instead of allocating via `Object.entries`. It is internal on purpose — `settings.mapIter` keeps the ordinary `Object.entries` contract. Do not hand an `entryIterator` result to anything that outlives the loop.
+- **Untrusted Props:** Props may be built from server data. Property names are written straight onto DOM nodes, so `UNSAFE_PROP_NAMES` (`__proto__` and friends) are refused, and per-node bookkeeping objects are null-prototyped.
+- **Blank Values:** `null`, `undefined` and `false` render nothing; `0` and `''` are real text children. Use the `isBlank` helper rather than a loose falsey check.
+
+### Optional Modules
+
+- **The Cell Protocol:** `{onDirty(fn) -> unsubscribe, getValue() -> any}`. This, not the observable protocol, is what the reactive module depends on. Adapters (`fromObservable`, `fromSubscribe`, `fromSignal`) bridge external libraries. `PENDING` means "no value yet"; errors are reported by throwing from `getValue()`.
+- **Lazy Connection:** Adapted cells subscribe upstream on their first listener and unsubscribe on their last. Preserve that — it is what stops a detached `watch` from leaking a subscription.
+- **Context Is DOM-Scoped:** Providers live on their own DOM node and consumers walk up to find them. Nothing is registered globally.
 
 ---
 

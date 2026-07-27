@@ -36,3 +36,48 @@ const myVdom = div({ id: 'app' },
 // Reconcile the virtual DOM with the real DOM.
 reconcile(container, [myVdom]);
 ```
+
+## Optional modules
+
+Two modules ship alongside the core. Dodo's core does not import either of them,
+so they cost nothing if you do not use them.
+
+### Reactivity — `@3sln/dodo/reactive`
+
+Reactive rendering built on a two method `Cell` protocol:
+
+```javascript
+{ onDirty(fn) -> unsubscribe, getValue() -> any }
+```
+
+Dodo does not depend on the observable protocol, on signals, or on any other
+library — it depends on this. Adapters bridge the rest (`fromObservable`,
+`fromSubscribe`, `fromSignal`), and `cell()` is there if you would rather not
+bring anything at all.
+
+```javascript
+import {reconcile, p} from '@3sln/dodo';
+import {cell, watch} from '@3sln/dodo/reactive';
+
+const name = cell('world');
+
+reconcile(container, [watch(name, value => p(`hello ${value}`))]);
+
+name.setValue('dodo'); // re-renders on the next frame
+```
+
+### Context — `@3sln/dodo/context`
+
+DOM-scoped context, so data reaches a descendant without passing through every
+component in between. Providers respect shadow DOM boundaries, and consumers
+name the keys they care about so unrelated changes do not re-render them.
+
+```javascript
+import {withContext, useContext} from '@3sln/dodo/context';
+
+withContext({theme: 'dark'},
+  someDeeplyNestedTree(
+    useContext(['theme'], ({theme}) => p(`theme is ${theme}`)),
+  ),
+)
+```

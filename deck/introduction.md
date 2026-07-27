@@ -21,3 +21,14 @@ Dodo's real power lies in its configurability. The default export is a pre-confi
 However, by using the `dodo(settings)` factory, you can replace the underlying data structure handlers. This allows Dodo to work seamlessly with other programming paradigms or languages—like ClojureScript—that use different data structures.
 
 See the <a href="?c=%2Fcustomization.md"><strong>Customization</strong></a> card for a live example of this in action.
+
+## Optional Modules
+
+Dodo ships two modules that its core neither imports nor knows about. Ignore
+them entirely and Dodo behaves exactly the same.
+
+- **`@3sln/dodo/reactive`** — reactive rendering built on a two method `Cell`
+  protocol, with adapters for observables and signals. See the
+  <a href="?c=%2Freactive.md"><strong>Reactivity</strong></a> card.
+- **`@3sln/dodo/context`** — DOM-scoped context for passing data down the tree.
+  See the <a href="?c=%2Fcontext.md"><strong>Context</strong></a> card.

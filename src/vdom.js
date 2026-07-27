@@ -3,7 +3,21 @@ const ALIAS_NODE = Symbol('ALIAS_NODE');
 const SPECIAL_NODE = Symbol('SPECIAL_NODE');
 const OPAQUE_NODE = Symbol('OPAQUE_NODE');
 const NODE_STATE = Symbol('NODE_STATE');
-const EMPTY_OBJECT = Object.freeze({});
+const HTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+
+// Property names that must never be written through to a DOM node: assigning
+// `__proto__` swaps the node's prototype, which corrupts the element for every
+// later operation. Relevant whenever props are built from untrusted data.
+const UNSAFE_PROP_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+// HTML tag names come back from the DOM upper cased while SVG/MathML keep their
+// authored case. A plain case-insensitive compare covers both, and unlike
+// `localeCompare` it neither builds a collator nor depends on the host locale.
+function sameTagName(nodeName, tag) {
+  return typeof tag === 'string' && nodeName.toLowerCase() === tag.toLowerCase();
+}
 
 class VNode {
   constructor(type, tag, args) {
@@ -48,7 +62,7 @@ function defaultShouldUpdate(a, b) {
       const keysA = Object.keys(a);
       if (keysA.length !== Object.keys(b).length) return true;
       for (const key of keysA) {
-        if (!b.hasOwnProperty(key) || a[key] !== b[key]) return true;
+        if (!hasOwn(b, key) || a[key] !== b[key]) return true;
       }
       return false;
     }
@@ -72,7 +86,7 @@ function special(o) {
 }
 
 function newElementNamespace(parentNode, newNodeTag) {
-  if (parentNode.namespaceURI === 'http://www.w3.org/1999/xhtml') {
+  if (parentNode.namespaceURI === HTML_NAMESPACE) {
     switch (newNodeTag) {
       case 'svg':
         return 'http://www.w3.org/2000/svg';
@@ -80,12 +94,18 @@ function newElementNamespace(parentNode, newNodeTag) {
         return 'http://www.w3.org/1998/Math/MathML';
     }
   }
-  return parentNode.namespaceURI ?? parentNode.host?.namespaceURI ?? 'http://www.w3.org/1999/xhtml';
+  return parentNode.namespaceURI ?? parentNode.host?.namespaceURI ?? HTML_NAMESPACE;
+}
+
+// `originalProps` is null-prototyped so that prop names like `__proto__` or
+// `toString` are recorded as ordinary own keys rather than hitting Object.prototype.
+function newNodeState(vdom) {
+  return {originalProps: Object.create(null), newVdom: vdom};
 }
 
 function createElementNode(parentNode, tag, vdom) {
   const el = parentNode.ownerDocument.createElementNS(newElementNamespace(parentNode, tag), tag);
-  el[NODE_STATE] = {originalProps: {}, newVdom: vdom};
+  el[NODE_STATE] = newNodeState(vdom);
   return el;
 }
 
@@ -120,6 +140,15 @@ function removePathFromFocusWithinSet(set, newPath) {
   }
 }
 
+// The realm's own `Node.prototype` is what we want, so that a node from an
+// iframe or a detached document is moved by its own implementation. Falls back
+// through the configured window and then the ambient one, either of which may
+// be all that is available for a document with no `defaultView`.
+function nodePrototypeFor(doc, settingsWindow) {
+  const view = settingsWindow ?? doc?.defaultView ?? globalThis;
+  return view.Node?.prototype ?? view.Element?.prototype;
+}
+
 function installFocusTrackingForDocument(doc) {
   const focusWithinSet = new Set();
   doc.addEventListener('focusin', event => {
@@ -137,7 +166,8 @@ function installFocusTrackingForDocument(doc) {
 export default userSettings => {
   const shouldUpdate = userSettings?.shouldUpdate ?? defaultShouldUpdate;
   const isMap = userSettings?.isMap ?? (x => x?.constructor === Object);
-  const mapIter = userSettings?.mapIter ?? (m => Object.entries(m));
+  const defaultMapIter = m => Object.entries(m);
+  const mapIter = userSettings?.mapIter ?? defaultMapIter;
   const mapGet = userSettings?.mapGet ?? ((m, k) => m[k]);
   const mapMerge = userSettings?.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
   const newMap = userSettings?.newMap ?? (obj => ({...obj}));
@@ -173,12 +203,50 @@ export default userSettings => {
     return [iterableOrIterator][Symbol.iterator]();
   }
 
+  // Reconciling one element walks its props, styling, attrs, dataset and hooks,
+  // so `Object.entries` here would allocate an array-of-pairs per map per update.
+  // For the default (plain object) map settings we iterate with a private
+  // iterator that reuses its result tuple instead. It is only ever consumed by
+  // the reconcile loops below, which destructure each entry immediately;
+  // `settings.mapIter` keeps the plain `Object.entries` contract for callers.
+  const usingDefaultMapIter = mapIter === defaultMapIter;
+
+  function plainEntryIterator(map) {
+    const keys = map == null ? [] : Object.keys(map);
+    const entry = [undefined, undefined];
+    const result = {done: false, value: entry};
+    let i = 0;
+    return {
+      next() {
+        if (i >= keys.length) {
+          result.done = true;
+          result.value = undefined;
+          return result;
+        }
+        const key = keys[i++];
+        entry[0] = key;
+        entry[1] = map[key];
+        return result;
+      },
+    };
+  }
+
+  function entryIterator(map) {
+    return usingDefaultMapIter ? plainEntryIterator(map) : toIterator(mapIter(map));
+  }
+
+  // `null`, `undefined` and `false` are the "render nothing" values. Note the
+  // checks are strict: `0` and `''` are legitimate text children.
+  function isBlank(item) {
+    return item === null || item === undefined || item === false;
+  }
+
   function flattenSeqIntoArray(array, items, excludeFalsey) {
     const iterator = toIterator(seqIter(items));
     let result;
     while (!(result = iterator.next()).done) {
       const item = result.value;
-      if (excludeFalsey && (item == null || item == false)) {
+      if (excludeFalsey && isBlank(item)) {
         continue;
       }
 
@@ -198,39 +266,44 @@ export default userSettings => {
 
   const flattenSeq = userSettings?.flattenSeq ?? defaultFlattenSeq;
 
-  function flattenVNodeChildrenIntoArray(array, children) {
-    for (const item of children) {
-      if (item === null || item === undefined || item === false) continue;
+  function flattenVNodeChildren(children, startIndex) {
+    const array = [];
+    for (let i = startIndex; i < children.length; i++) {
+      const item = children[i];
+      if (isBlank(item)) continue;
       if (!isSeq(item)) {
         array.push(item);
       } else {
-        flattenSeqIntoArray(array, seqIter(item));
+        flattenSeqIntoArray(array, item, true);
       }
     }
-  }
-  function flattenVNodeChildren(children) {
-    const array = [];
-    flattenVNodeChildrenIntoArray(array, children);
     return array;
+  }
+
+  // Blank children are filtered out before they reach here, but a custom
+  // `flattenSeq` may not do that filtering, so never assume `.toString()` exists.
+  function toText(value) {
+    return isBlank(value) ? '' : String(value);
   }
 
   function h(tag, props, ...children) {
     if (!isMap(props)) {
-      children.unshift(props);
+      // An explicit nullish props slot means "no props", not "render nothing".
+      if (props !== null && props !== undefined) children.unshift(props);
       props = EMPTY_MAP;
     }
-    return new VNode(ELEMENT_NODE, convertTagName(tag), [props ?? EMPTY_MAP, ...children]);
+    return new VNode(ELEMENT_NODE, convertTagName(tag), [props, ...children]);
   }
 
   function reconcileElementStyling(target, oldStyling, newStyling) {
     const style = target.style;
-    const newStylingIterator = toIterator(mapIter(newStyling));
+    const newStylingIterator = entryIterator(newStyling);
     let result;
     while (!(result = newStylingIterator.next()).done) {
       const [name, value] = result.value;
       style.setProperty(convertStyleName(name), value);
     }
-    const oldStylingIterator = toIterator(mapIter(oldStyling));
+    const oldStylingIterator = entryIterator(oldStyling);
     while (!(result = oldStylingIterator.next()).done) {
       const [name] = result.value;
       if (mapGet(newStyling, name) !== undefined) continue;
@@ -239,13 +312,13 @@ export default userSettings => {
   }
 
   function reconcileElementAttributes(target, oldAttrs, newAttrs) {
-    const newAttrsIterator = toIterator(mapIter(newAttrs));
+    const newAttrsIterator = entryIterator(newAttrs);
     let result;
     while (!(result = newAttrsIterator.next()).done) {
       const [name, value] = result.value;
       target.setAttribute(convertPropName(name), value);
     }
-    const oldAttrsIterator = toIterator(mapIter(oldAttrs));
+    const oldAttrsIterator = entryIterator(oldAttrs);
     while (!(result = oldAttrsIterator.next()).done) {
       const [name] = result.value;
       if (mapGet(newAttrs, name) !== undefined) continue;
@@ -254,13 +327,13 @@ export default userSettings => {
   }
 
   function reconcileElementDataset(target, oldDataset, newDataset) {
-    const newDatasetIterator = toIterator(mapIter(newDataset));
+    const newDatasetIterator = entryIterator(newDataset);
     let result;
     while (!(result = newDatasetIterator.next()).done) {
       const [name, value] = result.value;
       target.dataset[convertDataName(name)] = value;
     }
-    const oldDatasetIterator = toIterator(mapIter(oldDataset));
+    const oldDatasetIterator = entryIterator(oldDataset);
     while (!(result = oldDatasetIterator.next()).done) {
       const [name] = result.value;
       if (mapGet(newDataset, name) !== undefined) continue;
@@ -269,24 +342,52 @@ export default userSettings => {
   }
 
   function reconcileElementClasses(target, oldClasses, newClasses) {
-    const classesToRemove = new Set(flattenSeq(oldClasses, true));
+    // Both sides are compared post-conversion, otherwise a non-identity
+    // `convertClassName` would never match an old class against a new one.
+    const classesToRemove = new Set();
+    for (const c of flattenSeq(oldClasses, true)) {
+      const className = convertClassName(c);
+      if (className) classesToRemove.add(className);
+    }
     for (const c of flattenSeq(newClasses, true)) {
       const className = convertClassName(c);
+      // `classList.add('')` throws, and empty class names carry no meaning.
+      if (!className) continue;
       classesToRemove.delete(className);
       target.classList.add(className);
     }
-    for (const c of classesToRemove) {
-      target.classList.remove(convertClassName(c));
+    for (const className of classesToRemove) {
+      target.classList.remove(className);
+    }
+  }
+
+  function setElementProp(target, nodeState, propName, newValue) {
+    if (UNSAFE_PROP_NAMES.has(propName)) {
+      console.error(`Refusing to assign unsafe prop name '${propName}' to a DOM node.`);
+      return;
+    }
+    const originalProps = nodeState.originalProps;
+    if (!(propName in originalProps)) {
+      originalProps[propName] = target[propName];
+    }
+    target[propName] = newValue === undefined ? originalProps[propName] : newValue;
+  }
+
+  function restoreElementProp(target, nodeState, propName) {
+    const originalProps = nodeState.originalProps;
+    if (propName in originalProps) {
+      target[propName] = originalProps[propName];
+      delete originalProps[propName];
     }
   }
 
   function reconcileElementProps(target, props) {
     const nodeState = target[NODE_STATE];
-    const isHtml = target.namespaceURI === 'http://www.w3.org/1999/xhtml';
+    const isHtml = target.namespaceURI === HTML_NAMESPACE;
     const oldProps = nodeState.vdom?.args[0] ?? EMPTY_MAP;
 
     // Handle new and changed props
-    const propsIterator = toIterator(mapIter(props));
+    const propsIterator = entryIterator(props);
     let result;
     while (!(result = propsIterator.next()).done) {
       const [name, newValue] = result.value;
@@ -318,15 +419,7 @@ export default userSettings => {
         }
         default: {
           if (isHtml) {
-            const originalProps = nodeState.originalProps;
-            if (!(propName in originalProps)) {
-              originalProps[propName] = target[propName];
-            }
-            if (newValue === undefined) {
-              target[propName] = originalProps[propName];
-            } else {
-              target[propName] = newValue;
-            }
+            setElementProp(target, nodeState, propName, newValue);
           } else {
             if (newValue === undefined) {
               target.removeAttribute(propName);
@@ -340,7 +433,7 @@ export default userSettings => {
     }
 
     // Handle removed props
-    const oldPropsIterator = toIterator(mapIter(oldProps));
+    const oldPropsIterator = entryIterator(oldProps);
     while (!(result = oldPropsIterator.next()).done) {
       const [name, oldValue] = result.value;
       if (mapGet(props, name) !== undefined) continue; // it wasn't removed
@@ -361,11 +454,7 @@ export default userSettings => {
           break;
         default: {
           if (isHtml) {
-            const originalProps = nodeState.originalProps;
-            if (propName in originalProps) {
-              target[propName] = originalProps[propName];
-              delete originalProps[propName];
-            }
+            restoreElementProp(target, nodeState, propName);
           } else {
             target.removeAttribute(propName);
           }
@@ -375,71 +464,63 @@ export default userSettings => {
     }
   }
 
+  function addListener(target, hookName, listener) {
+    if (typeof listener === 'function') {
+      target.addEventListener(hookName, listener);
+    } else if (listener != null) {
+      target.addEventListener(hookName, mapGet(listener, listenerKey), {
+        capture: !!mapGet(listener, captureKey),
+        passive: !!mapGet(listener, passiveKey),
+      });
+    }
+  }
+
+  function removeListener(target, hookName, listener) {
+    if (typeof listener === 'function') {
+      target.removeEventListener(hookName, listener);
+    } else if (listener != null) {
+      target.removeEventListener(
+        hookName,
+        mapGet(listener, listenerKey),
+        !!mapGet(listener, captureKey),
+      );
+    }
+  }
+
   function reconcileListeners(target, hooks) {
     const state = target[NODE_STATE];
+    const newHooks = hooks ?? EMPTY_MAP;
+    let result;
+
     if (!state.vdom) {
-      const hooksIterator = toIterator(mapIter(hooks));
-      let result;
+      const hooksIterator = entryIterator(newHooks);
       while (!(result = hooksIterator.next()).done) {
         const [name, listener] = result.value;
         const hookName = convertHookName(name);
         if (hookName[0] === '$') continue;
-        if (typeof listener === 'function') {
-          target.addEventListener(hookName, listener);
-        } else if (listener != null) {
-          target.addEventListener(hookName, mapGet(listener, listenerKey), {
-            capture: !!mapGet(listener, captureKey),
-            passive: !!mapGet(listener, passiveKey),
-          });
-        }
+        addListener(target, hookName, listener);
       }
-    } else {
-      const oldHooks = state.vdom.hooks ?? EMPTY_MAP;
-      const newHooks = hooks ?? EMPTY_MAP;
-      const hooksIterator = toIterator(mapIter(newHooks));
-      let result;
-      while (!(result = hooksIterator.next()).done) {
-        const [name, listener] = result.value;
-        const hookName = convertHookName(name);
-        if (hookName[0] === '$') continue;
-        const oldListener = mapGet(oldHooks, name);
-        if (listener === oldListener) continue;
+      return;
+    }
 
-        if (typeof oldListener === 'function') {
-          target.removeEventListener(hookName, oldListener);
-        } else if (oldListener != null) {
-          target.removeEventListener(
-            hookName,
-            mapGet(oldListener, listenerKey),
-            !!mapGet(oldListener, captureKey),
-          );
-        }
+    const oldHooks = state.vdom.hooks ?? EMPTY_MAP;
+    const hooksIterator = entryIterator(newHooks);
+    while (!(result = hooksIterator.next()).done) {
+      const [name, listener] = result.value;
+      const hookName = convertHookName(name);
+      if (hookName[0] === '$') continue;
+      const oldListener = mapGet(oldHooks, name);
+      if (listener === oldListener) continue;
+      removeListener(target, hookName, oldListener);
+      addListener(target, hookName, listener);
+    }
 
-        if (typeof listener === 'function') {
-          target.addEventListener(hookName, listener);
-        } else if (listener != null) {
-          target.addEventListener(hookName, mapGet(listener, listenerKey), {
-            capture: !!mapGet(listener, captureKey),
-            passive: !!mapGet(listener, passiveKey),
-          });
-        }
-      }
-      const oldHooksIterator = toIterator(mapIter(oldHooks));
-      while (!(result = oldHooksIterator.next()).done) {
-        const [name] = result.value;
-        const hookName = convertHookName(name);
-        if (hookName[0] === '$' || mapGet(newHooks, name) !== undefined) continue;
-        const oldListener = mapGet(oldHooks, name);
-        if (typeof oldListener === 'function') {
-          target.removeEventListener(hookName, oldListener);
-        } else if (oldListener != null) {
-          target.removeEventListener(
-            hookName,
-            mapGet(oldListener, listenerKey),
-            !!mapGet(oldListener, captureKey),
-          );
-        }
-      }
+    const oldHooksIterator = entryIterator(oldHooks);
+    while (!(result = oldHooksIterator.next()).done) {
+      const [name] = result.value;
+      const hookName = convertHookName(name);
+      if (hookName[0] === '$' || mapGet(newHooks, name) !== undefined) continue;
+      removeListener(target, hookName, mapGet(oldHooks, name));
     }
   }
 
@@ -452,7 +533,7 @@ export default userSettings => {
     switch (newVdom.type) {
       case ELEMENT_NODE: {
         reconcileElementProps(target, args[0]);
-        reconcileElementChildren(target, flattenVNodeChildren(args.slice(1)));
+        reconcileElementChildren(target, flattenVNodeChildren(args, 1));
         break;
       }
       case OPAQUE_NODE: {
@@ -461,11 +542,12 @@ export default userSettings => {
       }
       case ALIAS_NODE: {
         const innerVdom = newVdom.tag.apply(target, newVdom.args);
-        if (innerVdom === undefined || innerVdom === null) break;
-        if (isSeq(innerVdom)) {
+        if (isBlank(innerVdom)) {
+          reconcileElementChildren(target, []);
+        } else if (isSeq(innerVdom)) {
           reconcileElementChildren(target, flattenSeq(innerVdom, true));
         } else {
-          reconcileElementChildren(target, flattenVNodeChildren([innerVdom]));
+          reconcileElementChildren(target, [innerVdom]);
         }
         break;
       }
@@ -493,7 +575,7 @@ export default userSettings => {
 
   function createNode(parentNode, vdom) {
     if (typeof vdom !== 'object' || vdom === null) {
-      return parentNode.ownerDocument.createTextNode(vdom.toString());
+      return parentNode.ownerDocument.createTextNode(toText(vdom));
     }
 
     let domNode;
@@ -531,6 +613,12 @@ export default userSettings => {
     }
 
     const {vdom} = state;
+    if (!vdom) {
+      // The node was created but never reconciled (a builder threw part way
+      // through); there is nothing attached to tear down.
+      delete target[NODE_STATE];
+      return;
+    }
 
     if (vdom.hooks) {
       reconcileListeners(target, EMPTY_MAP);
@@ -556,14 +644,31 @@ export default userSettings => {
     }
   }
 
-  function reconcileElementChildren(target, newChildren) {
-    const oldNodesToRemove = new Set(target.childNodes);
-    const oldVNodeNodesPool = new Map();
-    const oldTextNodesPool = [];
+  // A reused node only needs a second pass when its arguments or its hooks
+  // changed; comparing hooks too means a node whose props are stable but whose
+  // listeners are freshly bound each render still gets those listeners swapped.
+  function claimExistingNode(domNode, newVdom) {
+    const state = domNode[NODE_STATE];
+    if (
+      shouldUpdate(state.vdom.args, newVdom.args) ||
+      shouldUpdate(state.vdom.hooks, newVdom.hooks)
+    ) {
+      state.newVdom = newVdom;
+    }
+    return domNode;
+  }
+
+  function collectOldChildren(target) {
+    // Keyed by vdom tag; each bucket keeps a native Map of key -> nodes so that
+    // user supplied keys such as 'constructor' or '__proto__' cannot collide
+    // with Object.prototype. `cursor` replaces Array#shift, which would make
+    // reconciling a long unkeyed list quadratic.
+    const byTag = new Map();
+    const textNodes = {nodes: [], cursor: 0};
 
     for (const oldChild of target.childNodes) {
       if (oldChild.nodeType === 3 /* TEXT_NODE */) {
-        oldTextNodesPool.push(oldChild);
+        textNodes.nodes.push(oldChild);
         continue;
       }
 
@@ -578,162 +683,117 @@ export default userSettings => {
         continue;
       }
 
-      let oldNodesPoolForTag = oldVNodeNodesPool.get(vdom.tag);
-      if (!oldNodesPoolForTag) {
-        oldNodesPoolForTag = {nodesForKey: newMap({}), nodesWithoutKey: []};
-        oldVNodeNodesPool.set(vdom.tag, oldNodesPoolForTag);
+      let poolForTag = byTag.get(vdom.tag);
+      if (!poolForTag) {
+        poolForTag = {nodesForKey: null, nodesWithoutKey: {nodes: [], cursor: 0}};
+        byTag.set(vdom.tag, poolForTag);
       }
 
       if (vdom.k !== undefined) {
-        let oldNodesPoolForKey = mapGet(oldNodesPoolForTag.nodesForKey, vdom.k);
-        if (oldNodesPoolForKey === undefined) {
-          oldNodesPoolForKey = [];
+        if (!poolForTag.nodesForKey) poolForTag.nodesForKey = new Map();
+        const nodesForKey = poolForTag.nodesForKey.get(vdom.k);
+        if (nodesForKey) {
+          nodesForKey.nodes.push(oldChild);
+        } else {
+          poolForTag.nodesForKey.set(vdom.k, {nodes: [oldChild], cursor: 0});
         }
-        oldNodesPoolForKey.push(oldChild);
-        oldNodesPoolForTag.nodesForKey = mapPut(oldNodesPoolForTag.nodesForKey, vdom.k, oldNodesPoolForKey);
       } else {
-        oldNodesPoolForTag.nodesWithoutKey.push(oldChild);
+        poolForTag.nodesWithoutKey.nodes.push(oldChild);
       }
     }
+
+    return {byTag, textNodes};
+  }
+
+  function takeFromPool(pool) {
+    if (!pool || pool.cursor >= pool.nodes.length) return undefined;
+    return pool.nodes[pool.cursor++];
+  }
+
+  function attachAndReconcile(newChild) {
+    const state = newChild[NODE_STATE];
+    if (!state?.newVdom) return;
+    if (!state.vdom) {
+      try {
+        state.newVdom.hooks?.$attach?.(newChild);
+        if (state.newVdom.type === SPECIAL_NODE) {
+          state.newVdom.tag.attach?.(newChild);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    reconcileNode(newChild);
+  }
+
+  function reconcileElementChildren(target, newChildren) {
+    const oldNodesToRemove = target.firstChild ? new Set(target.childNodes) : null;
+    const {byTag, textNodes} = collectOldChildren(target);
 
     const newDomChildren = [];
     for (const newVdom of newChildren) {
       let newDomNode;
       if (newVdom instanceof VNode) {
-        const oldNodesPoolForTag = oldVNodeNodesPool.get(newVdom.tag);
-        if (!oldNodesPoolForTag) {
-          newDomNode = createNode(target, newVdom);
-        } else {
-          const key = newVdom.k;
-          if (key !== undefined) {
-            const pool = mapGet(oldNodesPoolForTag.nodesForKey, key);
-            if (pool && pool.length > 0) {
-              newDomNode = pool.shift();
-              const state = newDomNode[NODE_STATE];
-              if (shouldUpdate(state.vdom.args, newVdom.args)) {
-                if (state.vdom.hooks || newVdom.hooks) {
-                  reconcileListeners(newDomNode, newVdom.hooks);
-                }
-                state.newVdom = newVdom;
-              }
-            } else {
-              newDomNode = createNode(target, newVdom);
-            }
-          } else {
-            const unkeyedOldNode = oldNodesPoolForTag.nodesWithoutKey.shift();
-            if (unkeyedOldNode) {
-              newDomNode = unkeyedOldNode;
-              const state = newDomNode[NODE_STATE];
-              if (shouldUpdate(state.vdom.args, newVdom.args)) {
-                if (state.vdom.hooks || newVdom.hooks) {
-                  reconcileListeners(newDomNode, newVdom.hooks);
-                }
-                state.newVdom = newVdom;
-              }
-            } else {
-              newDomNode = createNode(target, newVdom);
-            }
-          }
-        }
+        const poolForTag = byTag.get(newVdom.tag);
+        const reusable = poolForTag
+          ? takeFromPool(
+              newVdom.k !== undefined
+                ? poolForTag.nodesForKey?.get(newVdom.k)
+                : poolForTag.nodesWithoutKey,
+            )
+          : undefined;
+        newDomNode = reusable ? claimExistingNode(reusable, newVdom) : createNode(target, newVdom);
       } else {
-        if (oldTextNodesPool.length > 0) {
-          newDomNode = oldTextNodesPool.shift();
-          newDomNode.nodeValue = newVdom?.toString();
+        const reusableText = takeFromPool(textNodes);
+        const text = toText(newVdom);
+        if (reusableText) {
+          newDomNode = reusableText;
+          if (newDomNode.nodeValue !== text) newDomNode.nodeValue = text;
         } else {
-          newDomNode = target.ownerDocument.createTextNode(newVdom?.toString());
+          newDomNode = target.ownerDocument.createTextNode(text);
         }
       }
-      oldNodesToRemove.delete(newDomNode);
+      oldNodesToRemove?.delete(newDomNode);
       newDomChildren.push(newDomNode);
     }
 
-    for (const nodeToRemove of oldNodesToRemove) {
-      cleanupTarget(nodeToRemove);
-      target.removeChild(nodeToRemove);
+    if (oldNodesToRemove) {
+      for (const nodeToRemove of oldNodesToRemove) {
+        cleanupTarget(nodeToRemove);
+        target.removeChild(nodeToRemove);
+      }
     }
 
-    const window = userSettings?.window ?? target.ownerDocument.defaultView;
-    const moveBefore = window.Element.prototype.moveBefore;
-    const insertBefore = window.Element.prototype.insertBefore;
-    if (target.isConnected) {
-      if (typeof moveBefore === 'function') {
-        for (let i = 0; i < newDomChildren.length; i++) {
-          const newChild = newDomChildren[i];
-          const existingChildAtPosition = target.childNodes[i];
-          if (newChild !== existingChildAtPosition) {
-            (newChild.isConnected ? moveBefore : insertBefore).call(
-              target,
-              newChild,
-              existingChildAtPosition,
-            );
-          }
-          const state = newChild[NODE_STATE];
-          if (state?.newVdom) {
-            if (!state.vdom) {
-              try {
-                state.newVdom.hooks?.$attach?.(newChild);
-                if (state.newVdom.type === SPECIAL_NODE) {
-                  state.newVdom.tag.attach?.(newChild);
-                }
-              } catch (err) {
-                console.error(err);
-              }
-            }
-            reconcileNode(newChild);
-          }
-        }
-      } else {
-        const doc = target.ownerDocument;
-        let focusWithin = documentToFocusWithinSet.get(doc);
-        if (!focusWithin) {
-          focusWithin = installFocusTrackingForDocument(doc);
-        }
-        for (let i = 0; i < newDomChildren.length; i++) {
-          const newChild = newDomChildren[i];
-          const existingChildAtPosition = target.childNodes[i];
-          if (newChild !== existingChildAtPosition) {
-            if (!focusWithin.has(newChild)) {
-              insertBefore.call(target, newChild, existingChildAtPosition);
-            }
-          }
-          const state = newChild[NODE_STATE];
-          if (state?.newVdom) {
-            if (!state.vdom) {
-              try {
-                state.newVdom.hooks?.$attach?.(newChild);
-                if (state.newVdom.type === SPECIAL_NODE) {
-                  state.newVdom.tag.attach?.(newChild);
-                }
-              } catch (err) {
-                console.error(err);
-              }
-            }
-            reconcileNode(newChild);
-          }
-        }
-      }
-    } else {
-      for (let i = 0; i < newDomChildren.length; i++) {
-        const newChild = newDomChildren[i];
-        const existingChildAtPosition = target.childNodes[i];
-        if (newChild !== existingChildAtPosition) {
+    if (newDomChildren.length === 0) return;
+
+    const doc = target.ownerDocument;
+    const nodeProto = nodePrototypeFor(doc, userSettings?.window);
+    const insertBefore = nodeProto.insertBefore;
+    // `moveBefore` relocates a node without detaching it, which preserves focus
+    // and other node state. Without it, fall back to skipping the move for any
+    // node holding focus so that reordering a list does not blur the user.
+    const moveBefore = typeof nodeProto.moveBefore === 'function' ? nodeProto.moveBefore : null;
+    const connected = target.isConnected;
+    let focusWithin = null;
+    if (connected && !moveBefore) {
+      focusWithin = documentToFocusWithinSet.get(doc) ?? installFocusTrackingForDocument(doc);
+    }
+
+    for (let i = 0; i < newDomChildren.length; i++) {
+      const newChild = newDomChildren[i];
+      const existingChildAtPosition = target.childNodes[i];
+      if (newChild !== existingChildAtPosition) {
+        if (connected && moveBefore) {
+          (newChild.isConnected ? moveBefore : insertBefore).call(
+            target,
+            newChild,
+            existingChildAtPosition,
+          );
+        } else if (!focusWithin?.has(newChild)) {
           insertBefore.call(target, newChild, existingChildAtPosition);
         }
-        const state = newChild[NODE_STATE];
-        if (state?.newVdom) {
-          if (!state.vdom) {
-            try {
-              state.newVdom.hooks?.$attach?.(newChild);
-              if (state.newVdom.type === SPECIAL_NODE) {
-                state.newVdom.tag.attach?.(newChild);
-              }
-            } catch (err) {
-              console.error(err);
-            }
-          }
-          reconcileNode(newChild);
-        }
       }
+      attachAndReconcile(newChild);
     }
   }
 
@@ -756,7 +816,10 @@ export default userSettings => {
 
     if (vdom instanceof VNode) {
       if (state) {
-        if (state.vdom.type === vdom.type) {
+        // The tag has to match as well as the type: swapping the alias function
+        // or the special descriptor is a different component, and reusing the
+        // state would skip the old one's detach and the new one's attach.
+        if (state.vdom.type === vdom.type && state.vdom.tag === vdom.tag) {
           if (
             shouldUpdate(state.vdom.args, vdom.args) ||
             shouldUpdate(state.vdom.hooks, vdom.hooks)
@@ -772,18 +835,13 @@ export default userSettings => {
       switch (vdom.type) {
         case ELEMENT_NODE:
         case OPAQUE_NODE:
-          if (
-            0 !==
-            target.nodeName.localeCompare(convertTagName(vdom.tag), undefined, {
-              sensitivity: 'base',
-            })
-          ) {
+          if (!sameTagName(target.nodeName, convertTagName(vdom.tag))) {
             throw new Error('incompatible target for vdom');
           }
           break;
       }
 
-      target[NODE_STATE] = {originalProps: {}, newVdom: vdom};
+      target[NODE_STATE] = newNodeState(vdom);
       try {
         vdom.hooks?.$attach?.(target);
         if (vdom.type === SPECIAL_NODE) {
