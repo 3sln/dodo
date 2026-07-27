@@ -80,16 +80,31 @@ for when you are integrating with something that is not dodo:
 | `readContext(node, keys)`                    | reads the context visible from `node`, once |
 | `contextCell(node, keys)`                    | the same, as a Cell you can `watch`         |
 
-## Custom dodo instances
+## Baking your own
 
-As with the reactive module, the exports of `@3sln/dodo/context` are bound to
-the default dodo instance. Bake your own if you use a custom one:
+As with the reactive module, the exports of `@3sln/dodo/context` are built
+against the default dodo instance. Bake your own if you use a custom one, and
+hand the **same settings object** to both factories so they share one `watch`:
 
 ```javascript
+import reactive from '@3sln/dodo/src/reactive.js';
 import context from '@3sln/dodo/src/context.js';
 
-const {withContext, useContext} = context(myDodo);
+const userSettings = {dodo: myDodo};
+
+const {watch} = reactive(userSettings);
+const {withContext, useContext} = context(userSettings);
 ```
+
+`context` re-exports `watch`, so one call will usually do:
+
+```javascript
+const {withContext, useContext, watch} = context({dodo: myDodo});
+```
+
+Settings are the reactive module's settings — `dodo`, `schedule` and
+`renderError`; see the <a href="?c=%2Freactive.md"><strong>Reactivity</strong></a>
+card.
 
 ## A note on movement
 

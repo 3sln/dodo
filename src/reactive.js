@@ -25,6 +25,8 @@
  *     and renders its error view.
  */
 
+import {moduleApi} from './settings.js';
+
 export const PENDING = Symbol('dodo.reactive.PENDING');
 
 const NOTHING = Symbol('dodo.reactive.NOTHING');
@@ -363,50 +365,40 @@ export function effect(source, fn) {
   return unsubscribe;
 }
 
-function defaultRenderError(h, error) {
-  return h(
-    'pre',
-    {
-      $styling: {
-        'background-color': '#fdd',
-        color: '#330',
-        padding: '1em',
-        'white-space': 'pre-wrap',
-      },
-    },
-    h('strong', null, `Error: ${error?.message ?? String(error)}`),
-    '\n\n',
-    error?.stack ?? '',
-  );
-}
-
 const WATCH_STATE = Symbol('dodo.reactive.watch');
+const REACTIVE_API = 'reactive';
 
 /**
  * Builds the dodo-aware half of the module: the `watch` component.
  *
- * Pass any dodo instance — the default one, or a custom one from `dodo()`.
- * Reactive state stays usable across instances because the Cell protocol itself
- * has no dependency on dodo at all.
+ *     const {watch} = reactive({dodo});
+ *
+ * Settings:
+ *
+ * | setting       | purpose                                                  |
+ * | ------------- | -------------------------------------------------------- |
+ * | `dodo`        | the instance to render into (required)                    |
+ * | `schedule`    | how re-renders are deferred and coalesced                 |
+ * | `renderError` | the fallback error view, when `watch` is given no `error` |
+ *
+ * Memoised against the settings object, so passing the same one here and to
+ * `context` yields a single shared `watch`.
+ *
+ * Cells themselves are instance-independent — only `watch` needs to know which
+ * dodo it renders into.
  */
-export default function reactiveFactory(dodo) {
-  if (!dodo || typeof dodo.special !== 'function') {
-    throw new Error('reactive() requires a dodo instance');
-  }
+export default function reactiveFactory(userSettings) {
+  return moduleApi(userSettings, REACTIVE_API, buildReactiveApi);
+}
 
-  const {h, special, reconcile, settings} = dodo;
-  const rawMapGet = settings?.mapGet ?? ((m, k) => m[k]);
+function buildReactiveApi(settings) {
+  const {dodo, schedule, renderError} = settings;
+  const {special, reconcile} = dodo;
+  const rawMapGet = settings.mapGet ?? ((m, k) => m[k]);
   // `options` is optional at every call site, and a custom `mapGet` is under no
   // obligation to tolerate a nullish map.
   const mapGet = (map, key) => (map == null ? undefined : rawMapGet(map, key));
-  const shouldUpdate = settings?.shouldUpdate ?? ((a, b) => a !== b);
-  const schedule = typeof dodo.schedule === 'function' ? dodo.schedule : fallbackSchedule;
-
-  function fallbackSchedule(fn, {signal} = {}) {
-    queueMicrotask(() => {
-      if (!signal?.aborted) fn();
-    });
-  }
+  const shouldUpdate = settings.shouldUpdate ?? ((a, b) => a !== b);
 
   const watch = special({
     attach(element) {
@@ -499,9 +491,7 @@ export default function reactiveFactory(dodo) {
       state.lastBuilder = NOTHING;
       console.error('Error in watched cell:', error);
       try {
-        reconcile(element, [
-          state.errorBuilder ? state.errorBuilder(error) : defaultRenderError(h, error),
-        ]);
+        reconcile(element, [(state.errorBuilder ?? renderError)(error)]);
       } catch (err) {
         console.error('Error rendering the error view:', err);
       }

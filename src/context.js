@@ -16,6 +16,9 @@
  */
 
 import reactiveFactory, {notifier} from './reactive.js';
+import {moduleApi} from './settings.js';
+
+const CONTEXT_API = 'context';
 
 const OPEN_KEY = Symbol('dodo.context.open');
 const ENCAPSULATED_KEY = Symbol('dodo.context.encapsulated');
@@ -87,23 +90,35 @@ function sameProviders(a, b) {
   return true;
 }
 
-export default function contextFactory(dodo) {
-  if (!dodo || typeof dodo.special !== 'function') {
-    throw new Error('context() requires a dodo instance');
-  }
+/**
+ * Builds the context components.
+ *
+ *     const {withContext, useContext} = context({dodo});
+ *
+ * Takes the same settings as `reactive`, and is memoised against the settings
+ * object in the same way. Hand the same object to both factories and the
+ * context components render through the very same `watch`.
+ */
+export default function contextFactory(userSettings) {
+  return moduleApi(userSettings, CONTEXT_API, buildContextApi);
+}
 
-  const {special, reconcile, settings} = dodo;
-  const {watch} = reactiveFactory(dodo);
-  const mapGet = settings?.mapGet ?? ((m, k) => m[k]);
-  const mapMerge = settings?.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
-  const newMap = settings?.newMap ?? (obj => ({...obj}));
+function buildContextApi(settings, userSettings) {
+  const {dodo} = settings;
+  const {special, reconcile} = dodo;
+  // Deliberately the caller's own settings object, so this hits the same
+  // memoised reactive API the caller gets from `reactive(userSettings)`.
+  const {watch} = reactiveFactory(userSettings);
+  const mapGet = settings.mapGet ?? ((m, k) => m[k]);
+  const mapMerge = settings.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
+  const newMap = settings.newMap ?? (obj => ({...obj}));
   const mapPut =
-    settings?.mapPut ??
+    settings.mapPut ??
     ((m, k, v) => {
       m[k] = v;
       return m;
     });
-  const shouldUpdate = settings?.shouldUpdate ?? ((a, b) => a !== b);
+  const shouldUpdate = settings.shouldUpdate ?? ((a, b) => a !== b);
 
   function selectKeys(data, keys) {
     let selected = newMap({});
@@ -265,5 +280,8 @@ export default function contextFactory(dodo) {
     attachContext,
     updateContext,
     detachContext,
+    // Re-exported so that it is obvious which `watch` the context components
+    // render through, and so callers need only one factory.
+    watch,
   };
 }

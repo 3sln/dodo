@@ -159,17 +159,71 @@ listeners yourself.
 - `readCell(x)` reads a cell and passes plain values straight through.
 - `isCell(x)` duck-types the protocol.
 
-## Custom dodo instances
+## Baking your own
 
-The bindings exported from `@3sln/dodo/reactive` are bound to dodo's default
-instance. If you build your own with `dodo(userSettings)`, bake your own copy so
-that both halves share one instance:
+The bindings exported from `@3sln/dodo/reactive` are built against dodo's
+default instance. If you build your own dodo with `dodo(userSettings)`, or you
+want to change how renders are scheduled, bake your own copy with the same
+factory pattern the rest of the project uses:
 
 ```javascript
 import reactive from '@3sln/dodo/src/reactive.js';
+import context from '@3sln/dodo/src/context.js';
 
-const {watch} = reactive(myDodo);
+const userSettings = {dodo: myDodo};
+
+const {watch} = reactive(userSettings);
+const {withContext, useContext} = context(userSettings);
 ```
 
-Cells themselves are instance-independent — only `watch` needs to know which
-dodo it is rendering into.
+Pass the **same settings object** to both. Factories are memoised against it, so
+the two end up sharing a single `watch`. That is not a micro-optimisation: a
+`special` component's identity *is* its descriptor object, and the reconciler
+uses that identity to decide whether a DOM node can be reused. Two separately
+built `watch` components would never reuse each other's nodes.
+
+`context(userSettings)` re-exports `watch` for exactly this reason, so one
+factory call is usually enough.
+
+| setting       | default                                     |
+| ------------- | ------------------------------------------- |
+| `dodo`        | required                                     |
+| `schedule`    | the instance's `schedule`                    |
+| `renderError` | a `<pre>` with the message and stack         |
+
+Map handling and change detection are not settings here — they always come from
+the dodo instance, since a module that disagreed with its renderer about what a
+map is would be worse than useless.
+
+Cells themselves are instance-independent. Only `watch` needs to know which dodo
+it is rendering into.
+
+## Scheduling
+
+By default `watch` defers renders through the dodo instance's `schedule`, so a
+burst of changes in one tick collapses into a single render on the next frame.
+Replace `schedule` to change that:
+
+```javascript
+// Render synchronously — handy in tests.
+reactive({dodo, schedule: fn => fn()});
+
+// Render when the browser is idle.
+reactive({dodo, schedule: (fn, {signal} = {}) => {
+  const id = requestIdleCallback(() => fn());
+  signal?.addEventListener('abort', () => cancelIdleCallback(id));
+}});
+```
+
+A `schedule` implementation receives `(fn, {signal})` and should not run `fn`
+once `signal` has aborted — that is how `watch` cancels a pending render when it
+is detached.
+
+The whole scheduler is replaceable at the dodo level too, which the modules then
+inherit:
+
+```javascript
+import {dodo} from '@3sln/dodo';
+
+const myDodo = dodo({scheduler: {schedule, flush, clear}});
+```

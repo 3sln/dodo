@@ -4,7 +4,7 @@ import * as dodo from './index.js';
 import contextFactory from './src/context.js';
 
 const {h, reconcile, flush, clear} = dodo;
-const {withContext, withEncapsulatedContext, useContext, readContext} = contextFactory(dodo);
+const {withContext, withEncapsulatedContext, useContext, readContext} = contextFactory({dodo});
 
 let container;
 

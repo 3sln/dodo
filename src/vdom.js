@@ -131,15 +131,6 @@ function addPathToFocusWithinSet(set, path) {
   }
 }
 
-function removePathFromFocusWithinSet(set, newPath) {
-  const newPathSet = new Set(newPath);
-  for (const node of [...set]) {
-    if (!newPathSet.has(node)) {
-      set.delete(node);
-    }
-  }
-}
-
 // The realm's own `Node.prototype` is what we want, so that a node from an
 // iframe or a detached document is moved by its own implementation. Falls back
 // through the configured window and then the ambient one, either of which may
@@ -151,12 +142,19 @@ function nodePrototypeFor(doc, settingsWindow) {
 
 function installFocusTrackingForDocument(doc) {
   const focusWithinSet = new Set();
+  // The set is rebuilt on every focusin rather than accumulated. `focusin`
+  // fires after `focusout`, and its composed path is the path of the element
+  // that just gained focus, so this is always exactly the current focus path.
+  // Accumulating instead would leave every previously focused element marked as
+  // holding focus for the rest of the document's life.
   doc.addEventListener('focusin', event => {
+    focusWithinSet.clear();
     addPathToFocusWithinSet(focusWithinSet, event.composedPath());
   });
   doc.addEventListener('focusout', event => {
-    const newPath = event.relatedTarget ? event.composedPath() : [];
-    removePathFromFocusWithinSet(focusWithinSet, newPath);
+    // A focusout with no relatedTarget means focus left the document entirely;
+    // otherwise the focusin that follows will rebuild the set.
+    if (!event.relatedTarget) focusWithinSet.clear();
   });
   addPathToFocusWithinSet(focusWithinSet, getPathFromElement(doc.activeElement));
   documentToFocusWithinSet.set(doc, focusWithinSet);
@@ -710,6 +708,65 @@ export default userSettings => {
     return pool.nodes[pool.cursor++];
   }
 
+  // Places children in order, walking the existing siblings alongside the
+  // desired list so that only nodes that are genuinely out of position move.
+  function placeChildren(target, newDomChildren, insertBefore, moveBefore) {
+    let ref = target.firstChild;
+    for (let i = 0; i < newDomChildren.length; i++) {
+      const newChild = newDomChildren[i];
+      if (newChild === ref) {
+        ref = ref.nextSibling;
+        continue;
+      }
+      const op = moveBefore && newChild.isConnected ? moveBefore : insertBefore;
+      op.call(target, newChild, ref);
+    }
+  }
+
+  // Same result, but reached without ever passing the focused child to
+  // insertBefore. Detaching a focused node blurs it, so instead it is treated
+  // as a fixed anchor and every other child is arranged around it: the children
+  // that belong before it are placed immediately before it, and the rest are
+  // walked into place after it. The anchor still ends up at its correct index,
+  // because exactly the right number of children end up on either side.
+  //
+  // Only needed where `moveBefore` is unavailable — it relocates a node without
+  // detaching it, so focus survives an ordinary move.
+  function placeChildrenAroundAnchor(target, newDomChildren, insertBefore, anchorIndex) {
+    const anchor = newDomChildren[anchorIndex];
+
+    // Right to left, so each child lands directly before the one that follows it.
+    let before = anchor;
+    for (let i = anchorIndex - 1; i >= 0; i--) {
+      const child = newDomChildren[i];
+      if (child !== before.previousSibling) {
+        insertBefore.call(target, child, before);
+      }
+      before = child;
+    }
+
+    // Left to right over whatever still follows the anchor. Children that were
+    // stranded on the other side of it get pulled across here.
+    let ref = anchor.nextSibling;
+    for (let i = anchorIndex + 1; i < newDomChildren.length; i++) {
+      const child = newDomChildren[i];
+      if (child === ref) {
+        ref = ref.nextSibling;
+      } else {
+        insertBefore.call(target, child, ref);
+      }
+    }
+  }
+
+  // At most one child of a given parent can be on the focus path, so there is
+  // never more than one anchor to preserve.
+  function findFocusedChildIndex(newDomChildren, focusWithin) {
+    for (let i = 0; i < newDomChildren.length; i++) {
+      if (focusWithin.has(newDomChildren[i])) return i;
+    }
+    return -1;
+  }
+
   function attachAndReconcile(newChild) {
     const state = newChild[NODE_STATE];
     if (!state?.newVdom) return;
@@ -769,31 +826,31 @@ export default userSettings => {
     const doc = target.ownerDocument;
     const nodeProto = nodePrototypeFor(doc, userSettings?.window);
     const insertBefore = nodeProto.insertBefore;
-    // `moveBefore` relocates a node without detaching it, which preserves focus
-    // and other node state. Without it, fall back to skipping the move for any
-    // node holding focus so that reordering a list does not blur the user.
     const moveBefore = typeof nodeProto.moveBefore === 'function' ? nodeProto.moveBefore : null;
     const connected = target.isConnected;
-    let focusWithin = null;
+
+    let anchorIndex = -1;
     if (connected && !moveBefore) {
-      focusWithin = documentToFocusWithinSet.get(doc) ?? installFocusTrackingForDocument(doc);
+      const focusWithin = documentToFocusWithinSet.get(doc) ?? installFocusTrackingForDocument(doc);
+      anchorIndex = findFocusedChildIndex(newDomChildren, focusWithin);
+      // A focused child is always one we pooled from the existing children, so
+      // it is already under this target. The guard is only here so that a
+      // surprising focus set can never turn into a thrown insertBefore.
+      if (anchorIndex !== -1 && newDomChildren[anchorIndex].parentNode !== target) {
+        anchorIndex = -1;
+      }
     }
 
+    if (anchorIndex === -1) {
+      placeChildren(target, newDomChildren, insertBefore, connected ? moveBefore : null);
+    } else {
+      placeChildrenAroundAnchor(target, newDomChildren, insertBefore, anchorIndex);
+    }
+
+    // Placement happens first so that lifecycle hooks and alias builders run
+    // against a fully arranged sibling list rather than a half built one.
     for (let i = 0; i < newDomChildren.length; i++) {
-      const newChild = newDomChildren[i];
-      const existingChildAtPosition = target.childNodes[i];
-      if (newChild !== existingChildAtPosition) {
-        if (connected && moveBefore) {
-          (newChild.isConnected ? moveBefore : insertBefore).call(
-            target,
-            newChild,
-            existingChildAtPosition,
-          );
-        } else if (!focusWithin?.has(newChild)) {
-          insertBefore.call(target, newChild, existingChildAtPosition);
-        }
-      }
-      attachAndReconcile(newChild);
+      attachAndReconcile(newDomChildren[i]);
     }
   }
 

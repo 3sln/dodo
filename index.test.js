@@ -595,3 +595,79 @@ describe('connected reordering', () => {
     expect(mounted.firstChild.childNodes.length).toEqual(3);
   });
 });
+
+describe('reordering around a focused child', () => {
+  let mounted;
+  const list = order =>
+    h(
+      'div',
+      null,
+      order.map(k => h('input', {id: k}).key(k)),
+    );
+  const order = () => [...mounted.firstChild.childNodes].map(n => n.id).join('');
+
+  beforeEach(() => {
+    mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+  });
+
+  test('should move a focused child to the front without blurring it', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['b', 'a', 'c'])]);
+    expect(order()).toEqual('bac');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should move a focused child to the back without blurring it', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#a');
+    focused.focus();
+
+    reconcile(mounted, [list(['b', 'c', 'a'])]);
+    expect(order()).toEqual('bca');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should reorder both sides of a focused child', () => {
+    reconcile(mounted, [list(['a', 'b', 'c', 'd'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['c', 'd', 'b', 'a'])]);
+    expect(order()).toEqual('cdba');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should reorder correctly after focus moves between children', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    mounted.querySelector('#a').focus();
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['c', 'b', 'a'])]);
+    expect(order()).toEqual('cba');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should reorder correctly after focus leaves the list', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    mounted.querySelector('#b').focus();
+    mounted.querySelector('#b').blur();
+
+    reconcile(mounted, [list(['c', 'b', 'a'])]);
+    expect(order()).toEqual('cba');
+  });
+
+  test('should insert and remove around a focused child', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['x', 'b', 'y'])]);
+    expect(order()).toEqual('xby');
+    expect(document.activeElement).toBe(focused);
+  });
+});

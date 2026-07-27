@@ -3,16 +3,25 @@
  *
  *     import {cell, watch} from '@3sln/dodo/reactive';
  *
- * If you build your own dodo with `dodo(userSettings)`, bake your own copy
- * instead so both halves share one instance:
+ * This `watch` is the same one `@3sln/dodo/context` renders through; both entry
+ * points are built from one shared settings object.
+ *
+ * If you build your own dodo with `dodo(userSettings)`, or you want to replace
+ * the scheduler or the error view, bake your own copy instead — and pass the
+ * same settings object to `context` so the two stay one system:
  *
  *     import reactive from '@3sln/dodo/src/reactive.js';
- *     const {watch} = reactive(myDodo);
+ *     import context from '@3sln/dodo/src/context.js';
+ *
+ *     const userSettings = {dodo: myDodo};
+ *     const {watch} = reactive(userSettings);
+ *     const {withContext} = context(userSettings);
  */
-import * as dodo from './index.js';
 import reactiveFactory from './src/reactive.js';
+import {defaultSettings} from './src/default-instance.js';
 
 export * from './src/reactive.js';
 export {default as reactive} from './src/reactive.js';
+export {settings} from './src/settings.js';
 
-export const {watch} = reactiveFactory(dodo);
+export const {watch} = reactiveFactory(defaultSettings);

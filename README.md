@@ -81,3 +81,20 @@ withContext({theme: 'dark'},
   ),
 )
 ```
+
+### Baking your own
+
+Both modules follow the same factory pattern as the rest of the project. If you
+use a custom dodo instance, or want to replace the scheduler or the error view,
+build your own and pass the **same settings object** to both — factories are
+memoised against it, so the two share a single `watch` component:
+
+```javascript
+import reactive from '@3sln/dodo/src/reactive.js';
+import context from '@3sln/dodo/src/context.js';
+
+const userSettings = {dodo: myDodo, schedule: fn => fn()};
+
+const {watch} = reactive(userSettings);
+const {withContext, useContext} = context(userSettings);
+```

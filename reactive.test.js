@@ -17,7 +17,7 @@ import reactiveFactory, {
 } from './src/reactive.js';
 
 const {h, flush, clear} = dodo;
-const {watch} = reactiveFactory(dodo);
+const {watch} = reactiveFactory({dodo});
 
 let container;
 
