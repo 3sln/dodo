@@ -5,7 +5,7 @@
     "": {
       "name": "dodo-deck",
       "dependencies": {
-        "@3sln/deck": "0.0.15",
+        "@3sln/deck": "0.0.16",
         "@3sln/dodo": "file:../",
       },
       "devDependencies": {
@@ -15,7 +15,7 @@
     },
   },
   "packages": {
-    "@3sln/deck": ["@3sln/deck@0.0.15", "", { "dependencies": { "@3sln/dodo": "^0.0.10", "@3sln/ngin": "^0.0.4", "esbuild": "^0.25.0", "fs-extra": "^11.3.2", "glob": "^10.3.10", "highlight.js": "^11.9.0", "marked": "^16.3.0" }, "peerDependencies": { "vite": ">=5" }, "optionalPeers": ["vite"], "bin": { "deck-build": "bin/build.js", "deck-dev": "bin/dev.js" } }, "sha512-c+7s17TUyNCVyY0S50WtqCG6jq9/Lo6SVFheJnVFSEpzPqy97MFq+Kq7l9ynIhwTrnOGMq83GJXgrXtPPvZcRA=="],
+    "@3sln/deck": ["@3sln/deck@0.0.16", "", { "dependencies": { "@3sln/dodo": "^0.0.10", "@3sln/ngin": "^0.0.4", "esbuild": "^0.25.0", "fs-extra": "^11.3.2", "glob": "^10.3.10", "highlight.js": "^11.9.0", "marked": "^16.3.0" }, "peerDependencies": { "vite": ">=5" }, "optionalPeers": ["vite"], "bin": { "deck-build": "bin/build.js", "deck-dev": "bin/dev.js" } }, "sha512-PTzzBFMhEtnLELJXTrJW/bsgs5lLYnaNfby5N2cBgrKdJd6tQZ4g/J50SLR/TRHPczqeC5g2oCnBr/oHzK1Ycw=="],
 
     "@3sln/dodo": ["@3sln/dodo@file:..", { "devDependencies": { "@types/bun": "latest", "happy-dom": "^18.0.1", "prettier": "^3.6.2" } }],
 
@@ -239,8 +239,6 @@
 
     "@3sln/deck/esbuild": ["esbuild@0.25.12", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.25.12", "@esbuild/android-arm": "0.25.12", "@esbuild/android-arm64": "0.25.12", "@esbuild/android-x64": "0.25.12", "@esbuild/darwin-arm64": "0.25.12", "@esbuild/darwin-x64": "0.25.12", "@esbuild/freebsd-arm64": "0.25.12", "@esbuild/freebsd-x64": "0.25.12", "@esbuild/linux-arm": "0.25.12", "@esbuild/linux-arm64": "0.25.12", "@esbuild/linux-ia32": "0.25.12", "@esbuild/linux-loong64": "0.25.12", "@esbuild/linux-mips64el": "0.25.12", "@esbuild/linux-ppc64": "0.25.12", "@esbuild/linux-riscv64": "0.25.12", "@esbuild/linux-s390x": "0.25.12", "@esbuild/linux-x64": "0.25.12", "@esbuild/netbsd-arm64": "0.25.12", "@esbuild/netbsd-x64": "0.25.12", "@esbuild/openbsd-arm64": "0.25.12", "@esbuild/openbsd-x64": "0.25.12", "@esbuild/openharmony-arm64": "0.25.12", "@esbuild/sunos-x64": "0.25.12", "@esbuild/win32-arm64": "0.25.12", "@esbuild/win32-ia32": "0.25.12", "@esbuild/win32-x64": "0.25.12" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg=="],
 
-    "bun-types/@types/node": ["@types/node@26.1.2", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg=="],
-
     "string-width-cjs/emoji-regex": ["emoji-regex@8.0.0", "", {}, "sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A=="],
 
     "string-width-cjs/strip-ansi": ["strip-ansi@6.0.1", "", { "dependencies": { "ansi-regex": "^5.0.1" } }, "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A=="],
@@ -298,8 +296,6 @@
     "@3sln/deck/esbuild/@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.25.12", "", { "os": "win32", "cpu": "ia32" }, "sha512-HkqnmmBoCbCwxUKKNPBixiWDGCpQGVsrQfJoVGYLPT41XWF8lHuE5N6WhVia2n4o5QK5M4tYr21827fNhi4byQ=="],
 
     "@3sln/deck/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
-
-    "bun-types/@types/node/undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
 
     "string-width-cjs/strip-ansi/ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
