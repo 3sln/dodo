@@ -16,9 +16,7 @@
  */
 
 import reactiveFactory, {notifier} from './reactive.js';
-import {moduleApi} from './settings.js';
-
-const CONTEXT_API = 'context';
+import {settings as resolveSettings} from './settings.js';
 
 const OPEN_KEY = Symbol('dodo.context.open');
 const ENCAPSULATED_KEY = Symbol('dodo.context.encapsulated');
@@ -93,22 +91,32 @@ function sameProviders(a, b) {
 /**
  * Builds the context components.
  *
- *     const {withContext, useContext} = context({dodo});
+ *     const {watch} = reactive({dodo});
+ *     const {withContext, useContext} = context({dodo, reactive: {watch}});
  *
- * Takes the same settings as `reactive`, and is memoised against the settings
- * object in the same way. Hand the same object to both factories and the
- * context components render through the very same `watch`.
+ * Consumers render through a `watch`, so this takes the reactive API as an
+ * injected dependency. Pass the one your application already uses — otherwise a
+ * private one is built here, and since a `special` component's identity is its
+ * descriptor object, that private `watch` would be a different component from
+ * yours and the two would never reuse each other's DOM nodes.
+ *
+ * If you would rather not wire it up, the `watch` actually in use is returned
+ * alongside the components:
+ *
+ *     const {withContext, useContext, watch} = context({dodo});
+ *
+ * Takes the same settings as `reactive`, plus `reactive`.
  */
 export default function contextFactory(userSettings) {
-  return moduleApi(userSettings, CONTEXT_API, buildContextApi);
-}
-
-function buildContextApi(settings, userSettings) {
+  const settings = resolveSettings(userSettings);
   const {dodo} = settings;
   const {special, reconcile} = dodo;
-  // Deliberately the caller's own settings object, so this hits the same
-  // memoised reactive API the caller gets from `reactive(userSettings)`.
-  const {watch} = reactiveFactory(userSettings);
+
+  const reactive = settings.reactive ?? reactiveFactory(settings);
+  if (typeof reactive.watch !== 'function') {
+    throw new Error('the injected reactive API must provide a watch component');
+  }
+  const {watch} = reactive;
   const mapGet = settings.mapGet ?? ((m, k) => m[k]);
   const mapMerge = settings.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
   const newMap = settings.newMap ?? (obj => ({...obj}));
@@ -280,8 +288,8 @@ function buildContextApi(settings, userSettings) {
     attachContext,
     updateContext,
     detachContext,
-    // Re-exported so that it is obvious which `watch` the context components
-    // render through, and so callers need only one factory.
+    // Returned so it is always unambiguous which `watch` the context components
+    // render through, whether it was injected or built here.
     watch,
   };
 }

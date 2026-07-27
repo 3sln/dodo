@@ -83,26 +83,29 @@ for when you are integrating with something that is not dodo:
 ## Baking your own
 
 As with the reactive module, the exports of `@3sln/dodo/context` are built
-against the default dodo instance. Bake your own if you use a custom one, and
-hand the **same settings object** to both factories so they share one `watch`:
+against the default dodo instance. Bake your own if you use a custom one.
+
+Consumers render through a `watch`, so `context` takes the reactive API as an
+injected dependency. Pass the one your application already uses:
 
 ```javascript
 import reactive from '@3sln/dodo/src/reactive.js';
 import context from '@3sln/dodo/src/context.js';
 
-const userSettings = {dodo: myDodo};
-
-const {watch} = reactive(userSettings);
-const {withContext, useContext} = context(userSettings);
+const {watch} = reactive({dodo: myDodo});
+const {withContext, useContext} = context({dodo: myDodo, reactive: {watch}});
 ```
 
-`context` re-exports `watch`, so one call will usually do:
+Omit it and `context` builds a private one — which works, but that `watch` is a
+different component from yours, and the reconciler treats a `special`'s
+descriptor as the node's identity, so the two would never reuse each other's DOM
+nodes. Either inject one, or take the one `context` hands back:
 
 ```javascript
 const {withContext, useContext, watch} = context({dodo: myDodo});
 ```
 
-Settings are the reactive module's settings — `dodo`, `schedule` and
+The other settings are the reactive module's — `dodo`, `schedule` and
 `renderError`; see the <a href="?c=%2Freactive.md"><strong>Reactivity</strong></a>
 card.
 

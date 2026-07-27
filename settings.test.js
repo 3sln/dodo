@@ -17,15 +17,45 @@ beforeEach(() => {
 });
 
 describe('module factory pattern', () => {
-  test('memoises the api against the settings object', () => {
-    const userSettings = {dodo: defaultDodo};
-    expect(reactiveFactory(userSettings)).toBe(reactiveFactory(userSettings));
-    expect(contextFactory(userSettings)).toBe(contextFactory(userSettings));
+  test('context renders through an injected reactive api', () => {
+    const {watch} = reactiveFactory({dodo: defaultDodo});
+    const api = contextFactory({dodo: defaultDodo, reactive: {watch}});
+    expect(api.watch).toBe(watch);
   });
 
-  test('shares one watch between reactive and context', () => {
-    const userSettings = {dodo: defaultDodo};
-    expect(contextFactory(userSettings).watch).toBe(reactiveFactory(userSettings).watch);
+  test('context builds its own watch when none is injected', () => {
+    const api = contextFactory({dodo: defaultDodo});
+    expect(typeof api.watch).toBe('function');
+    expect(api.watch).not.toBe(reactiveFactory({dodo: defaultDodo}).watch);
+  });
+
+  test('the injected watch is the one consumers actually render with', () => {
+    const rendered = [];
+    const {watch: realWatch} = reactiveFactory({dodo: defaultDodo});
+    const spyWatch = (...args) => {
+      rendered.push(args);
+      return realWatch(...args);
+    };
+    const {withContext, useContext} = contextFactory({
+      dodo: defaultDodo,
+      reactive: {watch: spyWatch},
+    });
+
+    defaultDodo.reconcile(container, [
+      withContext(
+        {color: 'red'},
+        useContext(['color'], d => h('p', null, d.color)),
+      ),
+    ]);
+
+    expect(container.textContent).toBe('red');
+    expect(rendered.length).toBe(1);
+  });
+
+  test('rejects an injected reactive api with no watch', () => {
+    expect(() => contextFactory({dodo: defaultDodo, reactive: {}})).toThrow(
+      'must provide a watch component',
+    );
   });
 
   test('the bundled entry points share one watch', async () => {
@@ -36,13 +66,15 @@ describe('module factory pattern', () => {
     expect(contextEntry.watch).toBe(reactiveEntry.watch);
   });
 
-  test('accepts a bare dodo instance and memoises against it too', () => {
-    expect(reactiveFactory(defaultDodo)).toBe(reactiveFactory(defaultDodo));
-    expect(contextFactory(defaultDodo).watch).toBe(reactiveFactory(defaultDodo).watch);
+  test('each factory call builds a distinct component', () => {
+    expect(reactiveFactory({dodo: defaultDodo}).watch).not.toBe(
+      reactiveFactory({dodo: defaultDodo}).watch,
+    );
   });
 
-  test('separate settings objects build separate apis', () => {
-    expect(reactiveFactory({dodo: defaultDodo})).not.toBe(reactiveFactory({dodo: defaultDodo}));
+  test('accepts a bare dodo instance in place of settings', () => {
+    expect(typeof reactiveFactory(defaultDodo).watch).toBe('function');
+    expect(typeof contextFactory(defaultDodo).useContext).toBe('function');
   });
 
   test('requires a dodo instance', () => {
@@ -53,7 +85,8 @@ describe('module factory pattern', () => {
 
   test('works with a frozen settings object', () => {
     const userSettings = Object.freeze({dodo: defaultDodo});
-    expect(reactiveFactory(userSettings)).toBe(reactiveFactory(userSettings));
+    expect(typeof reactiveFactory(userSettings).watch).toBe('function');
+    expect(typeof contextFactory(userSettings).useContext).toBe('function');
   });
 
   test('map settings always come from the dodo instance', () => {
@@ -61,6 +94,14 @@ describe('module factory pattern', () => {
     const resolved = settings({dodo: defaultDodo, mapGet: mine});
     expect(resolved.mapGet).toBe(defaultDodo.settings.mapGet);
     expect(resolved.mapGet).not.toBe(mine);
+  });
+
+  test('an injected reactive api inherits nothing from context settings', () => {
+    // The injected watch keeps its own scheduler; context does not re-wrap it.
+    const queued = [];
+    const {watch} = reactiveFactory({dodo: defaultDodo, schedule: fn => queued.push(fn)});
+    const api = contextFactory({dodo: defaultDodo, reactive: {watch}, schedule: fn => fn()});
+    expect(api.watch).toBe(watch);
   });
 });
 

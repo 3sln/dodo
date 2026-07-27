@@ -25,7 +25,7 @@
  *     and renders its error view.
  */
 
-import {moduleApi} from './settings.js';
+import {settings as resolveSettings} from './settings.js';
 
 export const PENDING = Symbol('dodo.reactive.PENDING');
 
@@ -366,7 +366,6 @@ export function effect(source, fn) {
 }
 
 const WATCH_STATE = Symbol('dodo.reactive.watch');
-const REACTIVE_API = 'reactive';
 
 /**
  * Builds the dodo-aware half of the module: the `watch` component.
@@ -381,17 +380,15 @@ const REACTIVE_API = 'reactive';
  * | `schedule`    | how re-renders are deferred and coalesced                 |
  * | `renderError` | the fallback error view, when `watch` is given no `error` |
  *
- * Memoised against the settings object, so passing the same one here and to
- * `context` yields a single shared `watch`.
+ * Each call builds a new `watch`, and a `special` component's identity is its
+ * descriptor object. Build one per application and pass it around — in
+ * particular, hand it to `context` — rather than calling this per module.
  *
- * Cells themselves are instance-independent — only `watch` needs to know which
+ * Cells themselves are instance-independent; only `watch` needs to know which
  * dodo it renders into.
  */
 export default function reactiveFactory(userSettings) {
-  return moduleApi(userSettings, REACTIVE_API, buildReactiveApi);
-}
-
-function buildReactiveApi(settings) {
+  const settings = resolveSettings(userSettings);
   const {dodo, schedule, renderError} = settings;
   const {special, reconcile} = dodo;
   const rawMapGet = settings.mapGet ?? ((m, k) => m[k]);

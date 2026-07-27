@@ -5,25 +5,21 @@
  * hand a factory a `userSettings` object carrying a `dodo` instance, and it
  * returns a configured API.
  *
- *     const userSettings = {dodo};
- *     const {watch} = reactive(userSettings);
- *     const {withContext} = context(userSettings);
+ *     const {watch} = reactive({dodo});
+ *     const {withContext, useContext} = context({dodo, reactive: {watch}});
  *
- * Passing the *same* settings object to both is what makes them one system:
- * factories are memoised against it, so `context` and `reactive` end up sharing
- * a single `watch`. That matters — a `special` component's identity is its
- * descriptor object, so two independently built `watch` components would never
- * reuse each other's DOM nodes.
+ * Dependencies between modules are injected, not discovered. `context` renders
+ * through a `watch`, so it takes one — build it once and pass it in. That
+ * matters more than it looks: a `special` component's identity *is* its
+ * descriptor object, and the reconciler uses that identity to decide whether a
+ * DOM node can be reused, so two independently built `watch` components would
+ * never reuse each other's nodes.
  *
  * As a convenience a bare dodo instance is accepted in place of the settings
- * object, and memoised against just as well:
+ * object:
  *
  *     const {watch} = reactive(dodo);
  */
-
-// Keyed on the object the caller passed, so nothing is written onto it and a
-// frozen settings object works fine.
-const apiCaches = new WeakMap();
 
 function microtaskSchedule(fn, {signal} = {}) {
   queueMicrotask(() => {
@@ -58,11 +54,11 @@ function looksLikeDodo(value) {
 /**
  * Merges user settings with defaults.
  *
- * | setting       | default                                                   |
- * | ------------- | --------------------------------------------------------- |
- * | `dodo`        | required                                                   |
- * | `schedule`    | the instance's `schedule`, else a microtask                |
- * | `renderError` | a plain `<pre>` with the message and stack                 |
+ * | setting       | default                                     |
+ * | ------------- | ------------------------------------------- |
+ * | `dodo`        | required                                     |
+ * | `schedule`    | the instance's `schedule`, else a microtask  |
+ * | `renderError` | a `<pre>` with the message and stack         |
  */
 export function settings(userSettings) {
   const source = looksLikeDodo(userSettings) ? {dodo: userSettings} : userSettings;
@@ -84,28 +80,4 @@ export function settings(userSettings) {
     // worse than useless, so these are not overridable here.
     ...dodo.settings,
   };
-}
-
-/**
- * Builds a module's API once per settings object.
- *
- * `build` receives the resolved settings and the original object the caller
- * passed, so that a module can hand that same object to another factory and hit
- * its cache.
- */
-export function moduleApi(userSettings, key, build) {
-  if (userSettings == null || typeof userSettings !== 'object') {
-    throw new Error('a dodo instance must be provided in settings, e.g. reactive({dodo})');
-  }
-
-  let cache = apiCaches.get(userSettings);
-  if (!cache) {
-    cache = new Map();
-    apiCaches.set(userSettings, cache);
-  }
-  if (cache.has(key)) return cache.get(key);
-
-  const api = build(settings(userSettings), userSettings);
-  cache.set(key, api);
-  return api;
 }

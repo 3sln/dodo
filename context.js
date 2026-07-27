@@ -3,24 +3,25 @@
  *
  *     import {withContext, useContext} from '@3sln/dodo/context';
  *
- * Built from the same shared settings object as `@3sln/dodo/reactive`, so the
- * `watch` re-exported here is that module's `watch`, not a second copy.
+ * Built with `@3sln/dodo/reactive`'s `watch` injected, so the `watch`
+ * re-exported here is that module's, not a second copy.
  *
  * If you build your own dodo with `dodo(userSettings)`, bake your own copy and
- * hand the same settings object to both factories:
+ * inject your own reactive API:
  *
  *     import reactive from '@3sln/dodo/src/reactive.js';
  *     import context from '@3sln/dodo/src/context.js';
  *
- *     const userSettings = {dodo: myDodo};
- *     const {watch} = reactive(userSettings);
- *     const {withContext, useContext} = context(userSettings);
+ *     const {watch} = reactive({dodo: myDodo});
+ *     const {withContext, useContext} = context({dodo: myDodo, reactive: {watch}});
  */
+import * as dodo from './index.js';
 import contextFactory from './src/context.js';
-import {defaultSettings} from './src/default-instance.js';
+import {watch} from './reactive.js';
 
 export {default as context} from './src/context.js';
 export {settings} from './src/settings.js';
+export {watch};
 
 export const {
   withContext,
@@ -31,5 +32,4 @@ export const {
   attachContext,
   updateContext,
   detachContext,
-  watch,
-} = contextFactory(defaultSettings);
+} = contextFactory({dodo, reactive: {watch}});
