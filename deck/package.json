@@ -17,6 +17,7 @@
   },
   "@3sln/deck": {
     "title": "Dodo Deck",
+    "url": "https://dodo.3sln.com",
     "pinned": [
       "/introduction.md"
     ],
