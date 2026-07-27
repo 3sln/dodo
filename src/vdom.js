@@ -164,8 +164,7 @@ function installFocusTrackingForDocument(doc) {
 export default userSettings => {
   const shouldUpdate = userSettings?.shouldUpdate ?? defaultShouldUpdate;
   const isMap = userSettings?.isMap ?? (x => x?.constructor === Object);
-  const defaultMapIter = m => Object.entries(m);
-  const mapIter = userSettings?.mapIter ?? defaultMapIter;
+  const mapIter = userSettings?.mapIter ?? (m => Object.entries(m));
   const mapGet = userSettings?.mapGet ?? ((m, k) => m[k]);
   const mapMerge = userSettings?.mapMerge ?? ((...maps) => Object.assign({}, ...maps));
   const newMap = userSettings?.newMap ?? (obj => ({...obj}));
@@ -202,36 +201,41 @@ export default userSettings => {
   }
 
   // Reconciling one element walks its props, styling, attrs, dataset and hooks,
-  // so `Object.entries` here would allocate an array-of-pairs per map per update.
-  // For the default (plain object) map settings we iterate with a private
-  // iterator that reuses its result tuple instead. It is only ever consumed by
-  // the reconcile loops below, which destructure each entry immediately;
-  // `settings.mapIter` keeps the plain `Object.entries` contract for callers.
-  const usingDefaultMapIter = mapIter === defaultMapIter;
-
-  function plainEntryIterator(map) {
-    const keys = map == null ? [] : Object.keys(map);
-    const entry = [undefined, undefined];
-    const result = {done: false, value: entry};
-    let i = 0;
-    return {
-      next() {
-        if (i >= keys.length) {
-          result.done = true;
-          result.value = undefined;
-          return result;
-        }
-        const key = keys[i++];
-        entry[0] = key;
-        entry[1] = map[key];
-        return result;
-      },
-    };
+  // so building an array of [name, value] pairs for each of those maps is the
+  // single biggest source of garbage in an update. `mapEach` is the iteration
+  // primitive the reconciler actually uses: it visits entries without
+  // materialising them.
+  //
+  // Supply `mapEach` for a custom collection and it is as cheap as a plain
+  // object — ClojureScript has `reduce-kv`, Immutable.js has `forEach`. Supply
+  // only `mapIter` and it still works, by way of the pairs it yields; that is
+  // the existing contract and it is unchanged.
+  //
+  // The extra `a`/`b`/`c` slots let call sites pass context to a hoisted
+  // visitor, so iterating does not allocate a closure either.
+  function defaultMapEach(map, visit, a, b, c) {
+    if (map == null) return;
+    const keys = Object.keys(map);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      visit(key, map[key], a, b, c);
+    }
   }
 
-  function entryIterator(map) {
-    return usingDefaultMapIter ? plainEntryIterator(map) : toIterator(mapIter(map));
+  function mapEachViaIter(map, visit, a, b, c) {
+    if (map == null) return;
+    const iterator = toIterator(mapIter(map));
+    let result;
+    while (!(result = iterator.next()).done) {
+      const entry = result.value;
+      visit(entry[0], entry[1], a, b, c);
+    }
   }
+
+  // Only fall back to the plain-object walk when the user has told us nothing
+  // about their maps. Overriding `mapIter` alone still routes through it.
+  const mapEach =
+    userSettings?.mapEach ?? (userSettings?.mapIter ? mapEachViaIter : defaultMapEach);
 
   // `null`, `undefined` and `false` are the "render nothing" values. Note the
   // checks are strict: `0` and `''` are legitimate text children.
@@ -293,50 +297,49 @@ export default userSettings => {
     return new VNode(ELEMENT_NODE, convertTagName(tag), [props, ...children]);
   }
 
+  // Visitors are hoisted to the factory closure rather than written inline, so
+  // that iterating a map allocates neither entries nor a callback.
+  function setStyleProperty(name, value, style) {
+    style.setProperty(convertStyleName(name), value);
+  }
+
+  function removeStaleStyleProperty(name, _value, style, newStyling) {
+    if (mapGet(newStyling, name) !== undefined) return;
+    style.removeProperty(convertStyleName(name));
+  }
+
   function reconcileElementStyling(target, oldStyling, newStyling) {
     const style = target.style;
-    const newStylingIterator = entryIterator(newStyling);
-    let result;
-    while (!(result = newStylingIterator.next()).done) {
-      const [name, value] = result.value;
-      style.setProperty(convertStyleName(name), value);
-    }
-    const oldStylingIterator = entryIterator(oldStyling);
-    while (!(result = oldStylingIterator.next()).done) {
-      const [name] = result.value;
-      if (mapGet(newStyling, name) !== undefined) continue;
-      style.removeProperty(convertStyleName(name));
-    }
+    mapEach(newStyling, setStyleProperty, style);
+    mapEach(oldStyling, removeStaleStyleProperty, style, newStyling);
+  }
+
+  function setAttribute(name, value, target) {
+    target.setAttribute(convertPropName(name), value);
+  }
+
+  function removeStaleAttribute(name, _value, target, newAttrs) {
+    if (mapGet(newAttrs, name) !== undefined) return;
+    target.removeAttribute(convertPropName(name));
   }
 
   function reconcileElementAttributes(target, oldAttrs, newAttrs) {
-    const newAttrsIterator = entryIterator(newAttrs);
-    let result;
-    while (!(result = newAttrsIterator.next()).done) {
-      const [name, value] = result.value;
-      target.setAttribute(convertPropName(name), value);
-    }
-    const oldAttrsIterator = entryIterator(oldAttrs);
-    while (!(result = oldAttrsIterator.next()).done) {
-      const [name] = result.value;
-      if (mapGet(newAttrs, name) !== undefined) continue;
-      target.removeAttribute(convertPropName(name));
-    }
+    mapEach(newAttrs, setAttribute, target);
+    mapEach(oldAttrs, removeStaleAttribute, target, newAttrs);
+  }
+
+  function setDataProperty(name, value, target) {
+    target.dataset[convertDataName(name)] = value;
+  }
+
+  function removeStaleDataProperty(name, _value, target, newDataset) {
+    if (mapGet(newDataset, name) !== undefined) return;
+    delete target.dataset[convertDataName(name)];
   }
 
   function reconcileElementDataset(target, oldDataset, newDataset) {
-    const newDatasetIterator = entryIterator(newDataset);
-    let result;
-    while (!(result = newDatasetIterator.next()).done) {
-      const [name, value] = result.value;
-      target.dataset[convertDataName(name)] = value;
-    }
-    const oldDatasetIterator = entryIterator(oldDataset);
-    while (!(result = oldDatasetIterator.next()).done) {
-      const [name] = result.value;
-      if (mapGet(newDataset, name) !== undefined) continue;
-      delete target.dataset[convertDataName(name)];
-    }
+    mapEach(newDataset, setDataProperty, target);
+    mapEach(oldDataset, removeStaleDataProperty, target, newDataset);
   }
 
   function reconcileElementClasses(target, oldClasses, newClasses) {
@@ -379,87 +382,83 @@ export default userSettings => {
     }
   }
 
+  function applyProp(name, newValue, target, oldProps, isHtml) {
+    const propName = convertPropName(name);
+    const oldValue = mapGet(oldProps, name);
+
+    if (Object.is(newValue, oldValue)) return;
+
+    switch (propName) {
+      case '$styling': {
+        if (!isMap(newValue)) throw new Error('invalid value for styling prop');
+        reconcileElementStyling(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
+        break;
+      }
+      case '$classes': {
+        if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
+        reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
+        break;
+      }
+      case '$attrs': {
+        if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
+        reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
+        break;
+      }
+      case '$dataset': {
+        if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
+        reconcileElementDataset(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
+        break;
+      }
+      default: {
+        if (isHtml) {
+          setElementProp(target, target[NODE_STATE], propName, newValue);
+        } else {
+          if (newValue === undefined) {
+            target.removeAttribute(propName);
+          } else {
+            target.setAttribute(propName, newValue);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  function restoreRemovedProp(name, oldValue, target, props, isHtml) {
+    if (mapGet(props, name) !== undefined) return; // it wasn't removed
+
+    const propName = convertPropName(name);
+    switch (propName) {
+      case '$styling':
+        reconcileElementStyling(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
+        break;
+      case '$classes':
+        reconcileElementClasses(target, oldValue ?? [], []);
+        break;
+      case '$attrs':
+        reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
+        break;
+      case '$dataset':
+        reconcileElementDataset(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
+        break;
+      default: {
+        if (isHtml) {
+          restoreElementProp(target, target[NODE_STATE], propName);
+        } else {
+          target.removeAttribute(propName);
+        }
+        break;
+      }
+    }
+  }
+
   function reconcileElementProps(target, props) {
     const nodeState = target[NODE_STATE];
     const isHtml = target.namespaceURI === HTML_NAMESPACE;
     const oldProps = nodeState.vdom?.args[0] ?? EMPTY_MAP;
 
-    // Handle new and changed props
-    const propsIterator = entryIterator(props);
-    let result;
-    while (!(result = propsIterator.next()).done) {
-      const [name, newValue] = result.value;
-      const propName = convertPropName(name);
-      const oldValue = mapGet(oldProps, name);
-
-      if (Object.is(newValue, oldValue)) continue;
-
-      switch (propName) {
-        case '$styling': {
-          if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-          reconcileElementStyling(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-          break;
-        }
-        case '$classes': {
-          if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
-          reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
-          break;
-        }
-        case '$attrs': {
-          if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-          reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-          break;
-        }
-        case '$dataset': {
-          if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-          reconcileElementDataset(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-          break;
-        }
-        default: {
-          if (isHtml) {
-            setElementProp(target, nodeState, propName, newValue);
-          } else {
-            if (newValue === undefined) {
-              target.removeAttribute(propName);
-            } else {
-              target.setAttribute(propName, newValue);
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    // Handle removed props
-    const oldPropsIterator = entryIterator(oldProps);
-    while (!(result = oldPropsIterator.next()).done) {
-      const [name, oldValue] = result.value;
-      if (mapGet(props, name) !== undefined) continue; // it wasn't removed
-
-      const propName = convertPropName(name);
-      switch (propName) {
-        case '$styling':
-          reconcileElementStyling(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-          break;
-        case '$classes':
-          reconcileElementClasses(target, oldValue ?? [], []);
-          break;
-        case '$attrs':
-          reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-          break;
-        case '$dataset':
-          reconcileElementDataset(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-          break;
-        default: {
-          if (isHtml) {
-            restoreElementProp(target, nodeState, propName);
-          } else {
-            target.removeAttribute(propName);
-          }
-          break;
-        }
-      }
-    }
+    mapEach(props, applyProp, target, oldProps, isHtml);
+    mapEach(oldProps, restoreRemovedProp, target, props, isHtml);
   }
 
   function addListener(target, hookName, listener) {
@@ -485,41 +484,39 @@ export default userSettings => {
     }
   }
 
+  function addInitialListener(name, listener, target) {
+    const hookName = convertHookName(name);
+    if (hookName[0] === '$') return;
+    addListener(target, hookName, listener);
+  }
+
+  function swapListener(name, listener, target, oldHooks) {
+    const hookName = convertHookName(name);
+    if (hookName[0] === '$') return;
+    const oldListener = mapGet(oldHooks, name);
+    if (listener === oldListener) return;
+    removeListener(target, hookName, oldListener);
+    addListener(target, hookName, listener);
+  }
+
+  function removeStaleListener(name, oldListener, target, newHooks) {
+    const hookName = convertHookName(name);
+    if (hookName[0] === '$' || mapGet(newHooks, name) !== undefined) return;
+    removeListener(target, hookName, oldListener);
+  }
+
   function reconcileListeners(target, hooks) {
     const state = target[NODE_STATE];
     const newHooks = hooks ?? EMPTY_MAP;
-    let result;
 
     if (!state.vdom) {
-      const hooksIterator = entryIterator(newHooks);
-      while (!(result = hooksIterator.next()).done) {
-        const [name, listener] = result.value;
-        const hookName = convertHookName(name);
-        if (hookName[0] === '$') continue;
-        addListener(target, hookName, listener);
-      }
+      mapEach(newHooks, addInitialListener, target);
       return;
     }
 
     const oldHooks = state.vdom.hooks ?? EMPTY_MAP;
-    const hooksIterator = entryIterator(newHooks);
-    while (!(result = hooksIterator.next()).done) {
-      const [name, listener] = result.value;
-      const hookName = convertHookName(name);
-      if (hookName[0] === '$') continue;
-      const oldListener = mapGet(oldHooks, name);
-      if (listener === oldListener) continue;
-      removeListener(target, hookName, oldListener);
-      addListener(target, hookName, listener);
-    }
-
-    const oldHooksIterator = entryIterator(oldHooks);
-    while (!(result = oldHooksIterator.next()).done) {
-      const [name] = result.value;
-      const hookName = convertHookName(name);
-      if (hookName[0] === '$' || mapGet(newHooks, name) !== undefined) continue;
-      removeListener(target, hookName, mapGet(oldHooks, name));
-    }
+    mapEach(newHooks, swapListener, target, oldHooks);
+    mapEach(oldHooks, removeStaleListener, target, newHooks);
   }
 
   function reconcileNode(target) {
@@ -923,6 +920,7 @@ export default userSettings => {
       shouldUpdate,
       isMap,
       mapIter,
+      mapEach,
       mapGet,
       mapMerge,
       newMap,
