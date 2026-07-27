@@ -16,11 +16,22 @@ despawned → spawning → spawned → despawning → despawned
 import {withPresence} from '@3sln/dodo/animate';
 
 withPresence(isOpen, phase => dialog({open: phase !== 'despawned'}, body()), {
-  spawn: {classes: ['fade-in']},
-  despawn: {classes: ['fade-out']},
+  spawn: {styling: {opacity: '1'}},
+  despawn: {styling: {opacity: '0'}},
   mode: 'remove',
 })
 ```
+
+The component also mirrors its phase onto its own node as `data-presence`, which
+is the hook to write CSS against — the node is created by the reconciler, so
+there is otherwise no selector for it:
+
+```css
+[data-presence] { opacity: 0; transition: opacity 400ms ease; }
+```
+
+That base rule is the state the element animates **from**. The spawn spec's
+styles are applied one frame later and become the state it rests **at**.
 
 | config    | meaning                                                          |
 | --------- | ---------------------------------------------------------------- |
@@ -52,8 +63,26 @@ element inserted during this frame has no previously rendered style to
 transition *from*, so applying in the same tick produces a jump rather than an
 animation.
 
-Whatever a spec applies is removed again when the phase finishes or is
-interrupted, so the reverse transition starts from a clean slate.
+"Next frame" here means a real `requestAnimationFrame`, deliberately *not*
+dodo's scheduler. The scheduler drains everything queued while it is draining,
+so work queued from inside a render lands in that same frame — and since every
+reactive render is itself deferred through the scheduler, the element would be
+created and styled without ever being painted at its starting state. The `frame`
+setting overrides how a later frame is reached, for tests.
+
+## Where a phase's styles end up
+
+A spec's styles are the state the element animates **to**, and they stay put
+when the phase completes — that state is the element's new resting state, and
+removing it would snap the element back to where it started. When the opposite
+phase begins, its styles go on in the same frame the previous phase's come off,
+so there is never a frame showing neither.
+
+An **interrupted** phase is different: it undoes itself immediately, because its
+styles describe a state the element is no longer heading towards.
+
+`runAnimation` on its own defaults to the opposite — `restore: true` — since a
+standalone animation like a shake should leave no trace.
 
 ## Interruption
 
@@ -78,6 +107,11 @@ computed `transition-duration`, `transition-delay`, `animation-duration` and
 That is knowable, bounded, and correct even when nothing animates — in which
 case it is zero and the phase advances immediately.
 
+The element's direct children are measured too. A presence wrapper very often
+has its transition declared on the content inside it rather than on itself, and
+measuring only the wrapper would report zero and skip the animation entirely — a
+silent no-op is a far worse failure than an overestimate.
+
 Set `duration` explicitly to override it. `computedAnimationDuration(element)`
 is exported if you want the same measurement yourself.
 
@@ -91,11 +125,13 @@ import {runAnimation} from '@3sln/dodo/animate';
 await runAnimation(element, {classes: ['shake'], duration: 400}, {signal});
 ```
 
-| option     | meaning                                             |
-| ---------- | ---------------------------------------------------- |
-| `signal`   | an `AbortSignal` that cancels and cleans up           |
-| `schedule` | how the next frame is reached, defaults to `rAF`      |
-| `window`   | override the realm                                    |
+| option    | meaning                                                        |
+| --------- | --------------------------------------------------------------- |
+| `signal`  | an `AbortSignal` that cancels and cleans up                      |
+| `frame`   | how a genuinely later frame is reached, defaults to `rAF`        |
+| `restore` | remove the applied styles on completion, `true` by default       |
+| `replace` | a previous spec whose styles come off as these go on             |
+| `window`  | override the realm                                               |
 
 ## Baking your own
 

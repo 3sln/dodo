@@ -56,12 +56,24 @@ function longestOf(durations, delays) {
  */
 export function computedAnimationDuration(element, {window: override} = {}) {
   const view = windowFor(element, override);
-  const style = view.getComputedStyle?.(element);
-  if (!style) return 0;
-  return Math.max(
-    longestOf(style.transitionDuration, style.transitionDelay),
-    longestOf(style.animationDuration, style.animationDelay),
-  );
+  const measure = target => {
+    const style = view.getComputedStyle?.(target);
+    if (!style) return 0;
+    return Math.max(
+      longestOf(style.transitionDuration, style.transitionDelay),
+      longestOf(style.animationDuration, style.animationDelay),
+    );
+  };
+
+  // The element's own children count too. A presence wrapper is very often
+  // `display: contents` with the transition declared on the content inside it,
+  // and measuring only the wrapper would report zero and skip the animation
+  // entirely — a silent no-op, which is far worse than an overestimate.
+  let longest = measure(element);
+  for (const child of element.children ?? []) {
+    longest = Math.max(longest, measure(child));
+  }
+  return longest;
 }
 
 function applyStyles(element, classes, styling) {
@@ -97,7 +109,20 @@ function whenAborted(signal) {
   });
 }
 
-function defaultSchedule(element, override) {
+/**
+ * Reaching a genuinely *later* frame, which is not the same thing as dodo's
+ * scheduler.
+ *
+ * `runQueue` drains everything queued while it is draining, so work queued from
+ * inside a render lands in that same frame. For a render that is deferred
+ * through the scheduler — which is every reactive render — the element would
+ * then be created and styled without ever being painted at its starting state,
+ * and the transition would have nothing to run from.
+ *
+ * A `requestAnimationFrame` registered from inside a frame callback runs in the
+ * next frame, which is exactly the guarantee needed.
+ */
+function nextFrame(element, override) {
   const view = windowFor(element, override);
   return fn =>
     typeof view.requestAnimationFrame === 'function'
@@ -123,11 +148,28 @@ function defaultSchedule(element, override) {
  * transition *from*, so applying in the same tick produces a jump rather than
  * an animation.
  *
- * Whatever was applied is removed again on completion or abort, so the reverse
- * transition starts from a clean slate.
+ * | option     | meaning                                                     |
+ * | ---------- | ------------------------------------------------------------ |
+ * | `signal`   | cancels the animation and undoes what it applied              |
+ * | `frame`    | how a genuinely later frame is reached, defaults to `rAF`     |
+ * | `restore`  | remove the applied styles on completion, `true` by default    |
+ * | `replace`  | a previous spec whose styles are removed as these are applied |
+ * | `window`   | override the realm                                            |
+ *
+ * `restore` is what a standalone animation wants — a shake leaves no trace. A
+ * transition *between states* wants the opposite: its end state is the new
+ * resting state, and removing it snaps the element back to where it started.
+ * `withPresence` passes `restore: false` and uses `replace` so the outgoing
+ * phase's styles come off in the same frame the incoming phase's go on.
  */
 export async function runAnimation(element, spec, options = {}) {
-  const {signal, window: override, schedule = defaultSchedule(element, override)} = options;
+  const {
+    signal,
+    window: override,
+    frame = nextFrame(element, override),
+    restore = true,
+    replace = null,
+  } = options;
   if (!element || !spec || signal?.aborted) return;
 
   const {classes, styling, animation, fn, duration} = spec;
@@ -136,7 +178,8 @@ export async function runAnimation(element, spec, options = {}) {
   const pending = [];
 
   let cleaned = false;
-  const cleanup = () => {
+  let undoStyles = null;
+  const cleanup = aborted => {
     if (cleaned) return;
     cleaned = true;
     for (const undo of cleanups) {
@@ -146,11 +189,14 @@ export async function runAnimation(element, spec, options = {}) {
         console.error('Error cleaning up an animation:', err);
       }
     }
+    // An abandoned phase always undoes itself, whatever `restore` says: its
+    // styles describe a state the element is no longer heading towards.
+    if (undoStyles && (aborted || restore)) undoStyles();
   };
   // Cleaning up on the abort itself rather than waiting for the await to
   // unwind: a reversal applies the opposite phase's classes immediately, and
   // this phase's must already be gone by then.
-  signal?.addEventListener('abort', cleanup, {once: true});
+  signal?.addEventListener('abort', () => cleanup(true), {once: true});
 
   try {
     if (typeof fn === 'function') {
@@ -170,10 +216,12 @@ export async function runAnimation(element, spec, options = {}) {
     if ((classes && classes.length) || styling) {
       pending.push(
         new Promise(resolve => {
-          schedule(() => {
+          frame(() => {
             if (cleaned || signal?.aborted) return resolve();
+            // Same frame, so swapping phases never shows a frame of neither.
+            if (replace) removeStyles(element, replace.classes, replace.styling);
             applyStyles(element, classes, styling);
-            cleanups.push(() => removeStyles(element, classes, styling));
+            undoStyles = () => removeStyles(element, classes, styling);
 
             const ms = duration ?? computedAnimationDuration(element, {window: override});
             if (!(ms > 0)) return resolve();
@@ -191,7 +239,7 @@ export async function runAnimation(element, spec, options = {}) {
       await work;
     }
   } finally {
-    cleanup();
+    cleanup(false);
   }
 }
 
@@ -206,7 +254,7 @@ const PRESENCE_STATE = Symbol('dodo.animate.presence');
  */
 export default function animateFactory(userSettings) {
   const settings = resolveSettings(userSettings);
-  const {dodo, reactive, schedule} = settings;
+  const {dodo, reactive, frame} = settings;
   const {special, reconcile} = dodo;
 
   if (typeof reactive?.watch !== 'function') {
@@ -260,7 +308,17 @@ export default function animateFactory(userSettings) {
       element[PRESENCE_STATE] = {
         phase: cell(DESPAWNED),
         controller: null,
+        applied: null,
       };
+      element.dataset.presence = DESPAWNED;
+    },
+
+    // The phase is mirrored onto the node as `data-presence` so that CSS has a
+    // stable hook on the wrapper itself — there is otherwise no way to write a
+    // rule for it, since the element is created by the reconciler.
+    setPhase(element, state, phase) {
+      element.dataset.presence = phase;
+      state.phase.setValue(phase);
     },
 
     update(element, [isPresent, builder, config], oldArgs) {
@@ -298,17 +356,29 @@ export default function animateFactory(userSettings) {
       if (present) {
         element.style.display = mapGet(config, 'display') ?? 'block';
       }
-      state.phase.setValue(present ? SPAWNING : DESPAWNING);
+      this.setPhase(element, state, present ? SPAWNING : DESPAWNING);
 
       const spec = readSpec(mapGet(config, present ? 'spawn' : 'despawn'));
-      runAnimation(element, spec, {signal: controller.signal, schedule})
+      const outgoing = state.applied;
+      state.applied = spec;
+
+      runAnimation(element, spec, {
+        signal: controller.signal,
+        // Deliberately not the dodo scheduler: see `nextFrame`. Overridable so
+        // a test can apply styles synchronously.
+        frame,
+        // A phase's end state is the element's new resting state, so it stays
+        // put; the opposite phase removes it when it takes over.
+        restore: false,
+        replace: outgoing,
+      })
         .catch(err => console.error('Error in presence animation:', err))
         .then(() => {
           if (controller.signal.aborted) return;
           // The element may have been detached while animating.
           if (element[PRESENCE_STATE] !== state) return;
           state.controller = null;
-          state.phase.setValue(present ? SPAWNED : DESPAWNED);
+          this.setPhase(element, state, present ? SPAWNED : DESPAWNED);
           if (!present) element.style.display = 'none';
         });
     },

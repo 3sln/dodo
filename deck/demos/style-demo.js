@@ -41,6 +41,4 @@ export default driver => {
       d.reconcile(container, null);
     });
   });
-
-  driver.setActivePanel('Demo');
 };

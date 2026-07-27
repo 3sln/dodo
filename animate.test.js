@@ -19,7 +19,10 @@ const syncSchedule = fn => fn();
 const {withPresence} = animateFactory({
   dodo,
   reactive: reactiveFactory({dodo, schedule: syncSchedule}),
-  schedule: syncSchedule,
+  // `frame` is how runAnimation reaches a later frame; `schedule` is how watch
+  // defers renders. They are separate settings because they must not be the
+  // same mechanism — see nextFrame in src/animate.js.
+  frame: syncSchedule,
 });
 
 let container;
@@ -42,16 +45,12 @@ describe('runAnimation', () => {
   });
 
   test('resolves immediately when there is nothing to do', async () => {
-    await runAnimation(element, {}, {schedule: syncSchedule});
-    await runAnimation(element, null, {schedule: syncSchedule});
+    await runAnimation(element, {}, {frame: syncSchedule});
+    await runAnimation(element, null, {frame: syncSchedule});
   });
 
   test('applies classes and removes them again when finished', async () => {
-    const promise = runAnimation(
-      element,
-      {classes: ['enter'], duration: 0},
-      {schedule: syncSchedule},
-    );
+    const promise = runAnimation(element, {classes: ['enter'], duration: 0}, {frame: syncSchedule});
     expect(element.classList.contains('enter')).toBe(true);
     await promise;
     expect(element.classList.contains('enter')).toBe(false);
@@ -61,7 +60,7 @@ describe('runAnimation', () => {
     const promise = runAnimation(
       element,
       {styling: {opacity: '0'}, duration: 0},
-      {schedule: syncSchedule},
+      {frame: syncSchedule},
     );
     expect(element.style.getPropertyValue('opacity')).toBe('0');
     await promise;
@@ -73,7 +72,7 @@ describe('runAnimation', () => {
     const promise = runAnimation(
       element,
       {classes: ['enter'], duration: 30},
-      {schedule: syncSchedule},
+      {frame: syncSchedule},
     ).then(() => {
       resolved = true;
     });
@@ -87,7 +86,7 @@ describe('runAnimation', () => {
   test('does not hang when a transition never fires', async () => {
     // No duration declared and no computed transition: the old transitionend
     // approach would wait forever here.
-    await runAnimation(element, {classes: ['enter']}, {schedule: syncSchedule});
+    await runAnimation(element, {classes: ['enter']}, {frame: syncSchedule});
     expect(element.classList.contains('enter')).toBe(false);
   });
 
@@ -102,7 +101,7 @@ describe('runAnimation', () => {
           return Promise.resolve();
         },
       },
-      {signal: controller.signal, schedule: syncSchedule},
+      {signal: controller.signal, frame: syncSchedule},
     );
     expect(seen.length).toBe(1);
     expect(seen[0].el).toBe(element);
@@ -114,7 +113,7 @@ describe('runAnimation', () => {
     const promise = runAnimation(
       element,
       {classes: ['enter'], duration: 10_000},
-      {signal: controller.signal, schedule: syncSchedule},
+      {signal: controller.signal, frame: syncSchedule},
     );
     expect(element.classList.contains('enter')).toBe(true);
 
@@ -129,7 +128,7 @@ describe('runAnimation', () => {
     await runAnimation(
       element,
       {classes: ['enter'], duration: 10_000},
-      {signal: controller.signal, schedule: syncSchedule},
+      {signal: controller.signal, frame: syncSchedule},
     );
     expect(element.classList.contains('enter')).toBe(false);
   });
@@ -149,7 +148,7 @@ describe('runAnimation', () => {
     const promise = runAnimation(
       element,
       {animation: {keyframes: [{opacity: 0}], options: {duration: 10_000}}},
-      {signal: controller.signal, schedule: syncSchedule},
+      {signal: controller.signal, frame: syncSchedule},
     );
     controller.abort();
     await promise;
@@ -322,5 +321,112 @@ describe('animate factory', () => {
     expect(() => animateFactory({reactive: {watch: () => {}}})).toThrow(
       'a dodo instance must be provided',
     );
+  });
+});
+
+describe('phase styles as resting state', () => {
+  let element;
+  beforeEach(() => {
+    element = document.createElement('div');
+    container.appendChild(element);
+  });
+
+  test('runAnimation can leave what it applied in place', async () => {
+    await runAnimation(
+      element,
+      {classes: ['shown'], duration: 0},
+      {restore: false, frame: syncSchedule},
+    );
+    expect(element.classList.contains('shown')).toBe(true);
+  });
+
+  test('an abandoned phase undoes itself even with restore off', async () => {
+    const controller = new AbortController();
+    const promise = runAnimation(
+      element,
+      {classes: ['shown'], duration: 10_000},
+      {restore: false, signal: controller.signal, frame: syncSchedule},
+    );
+    expect(element.classList.contains('shown')).toBe(true);
+    controller.abort();
+    expect(element.classList.contains('shown')).toBe(false);
+    await promise;
+  });
+
+  test('replace swaps the outgoing styles in the same frame', async () => {
+    await runAnimation(
+      element,
+      {classes: ['in'], duration: 0},
+      {restore: false, frame: syncSchedule},
+    );
+    expect(element.classList.contains('in')).toBe(true);
+
+    await runAnimation(
+      element,
+      {classes: ['out'], duration: 0},
+      {restore: false, replace: {classes: ['in']}, frame: syncSchedule},
+    );
+    expect(element.classList.contains('in')).toBe(false);
+    expect(element.classList.contains('out')).toBe(true);
+  });
+});
+
+describe('withPresence styling and phase reflection', () => {
+  const render = (present, config, builder = phase => h('p', null, phase)) =>
+    reconcile(container, [withPresence(present, builder, config)]);
+
+  test('mirrors the phase onto the node for CSS to hook', async () => {
+    render(true, {spawn: {duration: 0}});
+    const node = container.firstChild;
+    expect(node.dataset.presence).toBe(SPAWNING);
+
+    await tick();
+    flush();
+    expect(node.dataset.presence).toBe(SPAWNED);
+
+    render(false, {despawn: {duration: 0}});
+    expect(node.dataset.presence).toBe(DESPAWNING);
+    await tick();
+    flush();
+    expect(node.dataset.presence).toBe(DESPAWNED);
+  });
+
+  test('keeps the spawn styles as the resting state', async () => {
+    render(true, {spawn: {classes: ['visible'], duration: 0}});
+    const node = container.firstChild;
+    await tick();
+    flush();
+    // Removing these on completion would snap the element back to hidden.
+    expect(node.classList.contains('visible')).toBe(true);
+  });
+
+  test('swaps the spawn styles for the despawn styles', async () => {
+    const config = {
+      spawn: {classes: ['visible'], duration: 0},
+      despawn: {classes: ['gone'], duration: 0},
+    };
+    render(true, config);
+    const node = container.firstChild;
+    await tick();
+    flush();
+    expect(node.classList.contains('visible')).toBe(true);
+
+    render(false, config);
+    await tick();
+    flush();
+    expect(node.classList.contains('visible')).toBe(false);
+    expect(node.classList.contains('gone')).toBe(true);
+  });
+
+  test('measures a transition declared on the rendered child', () => {
+    const wrapper = document.createElement('div');
+    container.appendChild(wrapper);
+    const child = document.createElement('div');
+    child.style.setProperty('transition-duration', '300ms');
+    wrapper.appendChild(child);
+
+    // The wrapper itself declares nothing; without looking at children this
+    // would report 0 and skip the animation entirely.
+    expect(computedAnimationDuration(wrapper)).toBe(300);
   });
 });
