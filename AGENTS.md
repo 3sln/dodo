@@ -4,6 +4,7 @@ This document outlines guidelines for LLM agents interacting with the `dodo` pro
 
 ## 1. Architecture Overview
 
+- **Releasing:** Bumping `version` in `package.json` on `main` opens a draft release (`.github/workflows/draft-release.yml`). Publishing that draft creates the tag and publishes to npm (`.github/workflows/publish.yml`), after re-running the tests and checking the tag matches `package.json`. Nothing is tagged or published by a version bump alone. Requires an `NPM_TOKEN` repository secret.
 - **VDOM Factory:** The main export of the library is a factory function, `vdom(userSettings)`, located in `src/vdom.js`. This function creates a closure containing a complete, configured VDOM API.
 - **Optional Modules:** `src/reactive.js`, `src/context.js`, `src/observe.js`, `src/animate.js` and `src/style.js` are opt-in extras exposed as `@3sln/dodo/{reactive,context,observe,animate,style}`. The core must never import them; they only consume the public dodo API they are handed. Keep it that way. `src/dom.js` holds the realm helpers they share.
 - **Configurability:** The factory accepts a `userSettings` object. This object allows the user to override default behaviors for data structure handling (`isMap`, `mapIter`, `mapMerge`, etc.) and naming conventions (`convertTagName`, etc.). This is the key to interoperability with environments like ClojureScript.
