@@ -1,12 +1,13 @@
 import {test, expect, describe, beforeEach, mock} from 'bun:test';
 import {Window} from 'happy-dom';
-import {h, alias, special, reconcile} from './index.js';
+import {h, alias, special, reconcile, schedule, flush, clear, dodo} from './index.js';
 
 let container;
 
 beforeEach(() => {
   globalThis.window = new Window();
   globalThis.document = window.document;
+  clear();
   container = document.createElement('div');
 });
 
@@ -157,13 +158,13 @@ describe('alias function (ALIAS_NODE) specific behavior', () => {
     const eventSpy = mock();
     const myComponent = alias(function () {
       return h('button', null, 'Hello').on({
-        click: () => this.dispatchEvent(new window.CustomEvent('my-event', { bubbles: true }))
+        click: () => this.dispatchEvent(new window.CustomEvent('my-event', {bubbles: true})),
       });
     });
 
     const vdom = myComponent().on({'my-event': eventSpy});
     reconcile(container, [vdom]);
-    
+
     container.querySelector('button').click();
 
     expect(eventSpy).toHaveBeenCalledTimes(1);
@@ -268,5 +269,405 @@ describe('VNode lifecycle hooks', () => {
 
     reconcile(container, null);
     expect(reconcileCount).toBe(2);
+  });
+});
+
+describe('children flattening', () => {
+  test('should drop null, undefined and false children at any nesting depth', () => {
+    reconcile(container, h('div', null, [null, [undefined, false], h('p', null, 'kept')]));
+    expect(container.innerHTML).toEqual('<p>kept</p>');
+  });
+
+  test('should render 0 and the empty string as text', () => {
+    reconcile(container, h('div', null, [0, 'a', '', 0.0]));
+    expect(container.textContent).toEqual('0a0');
+  });
+
+  test('should treat a nullish props slot as absent rather than as a child', () => {
+    reconcile(container, h('div', null, 'only child'));
+    expect(container.childNodes.length).toEqual(1);
+    expect(container.textContent).toEqual('only child');
+  });
+});
+
+describe('keyed reconciliation', () => {
+  test('should support keys that collide with Object.prototype members', () => {
+    const build = text =>
+      h('div', null, [
+        h('li', null, `${text}1`).key('constructor'),
+        h('li', null, `${text}2`).key('__proto__'),
+        h('li', null, `${text}3`).key('toString'),
+      ]);
+
+    reconcile(container, build('a'));
+    expect(container.textContent).toEqual('a1a2a3');
+    const firstItem = container.childNodes[0];
+
+    reconcile(container, build('b'));
+    expect(container.textContent).toEqual('b1b2b3');
+    // The nodes were reused, not recreated.
+    expect(container.childNodes[0]).toBe(firstItem);
+  });
+
+  test('should reuse nodes in order for a long unkeyed list', () => {
+    const items = n =>
+      h(
+        'div',
+        null,
+        Array.from({length: n}, (_, i) => h('li', null, String(i))),
+      );
+    reconcile(container, items(50));
+    const third = container.childNodes[2];
+    reconcile(container, items(50));
+    expect(container.childNodes.length).toEqual(50);
+    expect(container.childNodes[2]).toBe(third);
+  });
+});
+
+describe('prop safety', () => {
+  test('should refuse to assign __proto__ as a property', () => {
+    const consoleError = console.error;
+    console.error = () => {};
+    try {
+      reconcile(container, h('div', {['__proto__']: {polluted: true}}));
+    } finally {
+      console.error = consoleError;
+    }
+    expect(container.polluted).toBeUndefined();
+    // The element is still a working DOM node.
+    expect(typeof container.appendChild).toBe('function');
+  });
+
+  test('should skip empty and nullish class names', () => {
+    reconcile(container, h('div', {$classes: ['a', '', null, false, 'b']}));
+    expect(container.className).toEqual('a b');
+  });
+
+  test('should remove classes that are no longer present', () => {
+    reconcile(container, h('div', {$classes: ['a', 'b']}));
+    reconcile(container, h('div', {$classes: ['b', 'c']}));
+    expect(container.classList.contains('a')).toBe(false);
+    expect(container.classList.contains('b')).toBe(true);
+    expect(container.classList.contains('c')).toBe(true);
+  });
+});
+
+describe('node identity changes', () => {
+  test('should reject reconciling a different tag onto an already managed target', () => {
+    reconcile(container, h('div', {id: 'first'}));
+    expect(() => reconcile(container, h('span', {id: 'second'}))).toThrow(
+      'incompatible target for vdom',
+    );
+  });
+
+  test('should detach the old special and attach the new one when the tag changes', () => {
+    const firstAttach = mock();
+    const firstDetach = mock();
+    const secondAttach = mock();
+    const first = special({attach: firstAttach, detach: firstDetach, update: () => {}});
+    const second = special({attach: secondAttach, update: () => {}});
+
+    reconcile(container, first('x'));
+    reconcile(container, second('x'));
+
+    expect(firstAttach).toHaveBeenCalledTimes(1);
+    expect(firstDetach).toHaveBeenCalledTimes(1);
+    expect(secondAttach).toHaveBeenCalledTimes(1);
+  });
+
+  test('should clear rendered content when an alias returns nothing', () => {
+    const conditional = alias(show => (show ? h('p', null, 'shown') : null));
+    reconcile(container, [conditional(true)]);
+    expect(container.textContent).toEqual('shown');
+    reconcile(container, [conditional(false)]);
+    expect(container.textContent).toEqual('');
+  });
+
+  test('should swap a listener that changed while the props stayed identical', () => {
+    const props = {id: 'btn'};
+    const child = 'go';
+    let clicked = null;
+    const render = label =>
+      reconcile(container, [h('button', props, child).on({click: () => (clicked = label)})]);
+
+    render('first');
+    render('second');
+    container.firstChild.dispatchEvent(new window.MouseEvent('click'));
+    expect(clicked).toEqual('second');
+  });
+});
+
+describe('scheduler', () => {
+  test('should run queued tasks on flush', () => {
+    const ran = [];
+    schedule(() => ran.push('a'));
+    schedule(() => ran.push('b'));
+    flush();
+    expect(ran).toEqual(['a', 'b']);
+  });
+
+  test('should also run tasks queued during a flush', () => {
+    const ran = [];
+    schedule(() => {
+      ran.push('outer');
+      schedule(() => ran.push('inner'));
+    });
+    flush();
+    expect(ran).toEqual(['outer', 'inner']);
+  });
+
+  test('should not run tasks whose signal was aborted', () => {
+    const controller = new AbortController();
+    const task = mock();
+    schedule(task, {signal: controller.signal});
+    controller.abort();
+    flush();
+    expect(task).not.toHaveBeenCalled();
+  });
+
+  test('should drop everything on clear', () => {
+    const task = mock();
+    schedule(task);
+    clear();
+    flush();
+    expect(task).not.toHaveBeenCalled();
+  });
+
+  test('should keep running after an error in a task', () => {
+    const consoleError = console.error;
+    console.error = () => {};
+    const after = mock();
+    try {
+      schedule(() => {
+        throw new Error('task failed');
+      });
+      schedule(after);
+      flush();
+    } finally {
+      console.error = consoleError;
+    }
+    expect(after).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('special props, namespaces and custom settings', () => {
+  test('styling, attrs, dataset add and remove', () => {
+    reconcile(
+      container,
+      h('div', {
+        $styling: {color: 'red', 'font-size': '12px'},
+        $attrs: {role: 'main', 'aria-label': 'x'},
+        $dataset: {foo: 'a', bar: 'b'},
+        $classes: ['c1', 'c2'],
+        id: 'root',
+      }),
+    );
+    expect(container.style.color).toBe('red');
+    expect(container.getAttribute('role')).toBe('main');
+    expect(container.dataset.foo).toBe('a');
+    expect(container.className).toBe('c1 c2');
+
+    reconcile(
+      container,
+      h('div', {
+        $styling: {color: 'blue'},
+        $attrs: {role: 'nav'},
+        $dataset: {foo: 'z'},
+        $classes: ['c2'],
+        id: 'root',
+      }),
+    );
+    expect(container.style.color).toBe('blue');
+    expect(container.style.getPropertyValue('font-size')).toBe('');
+    expect(container.getAttribute('aria-label')).toBe(null);
+    expect(container.dataset.bar).toBeUndefined();
+    expect(container.className).toBe('c2');
+
+    reconcile(container, h('div', {id: 'root'}));
+    expect(container.style.color).toBe('');
+    expect(container.getAttribute('role')).toBe(null);
+    expect(container.className).toBe('');
+  });
+
+  test('svg children get the svg namespace and attribute props', () => {
+    reconcile(container, [h('svg', {width: '10'}, h('circle', {cx: '1', r: '2'}))]);
+    const svg = container.firstChild;
+    expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(svg.firstChild.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(svg.firstChild.getAttribute('cx')).toBe('1');
+    expect(svg.getAttribute('width')).toBe('10');
+  });
+
+  test('keyed reorder preserves node identity', () => {
+    const list = order =>
+      h(
+        'ul',
+        null,
+        order.map(k => h('li', null, k).key(k)),
+      );
+    reconcile(container, [list(['a', 'b', 'c'])]);
+    const ul = container.firstChild;
+    const nodes = new Map([...ul.childNodes].map(n => [n.textContent, n]));
+
+    reconcile(container, [list(['c', 'a', 'b'])]);
+    expect(ul.textContent).toBe('cab');
+    expect(ul.childNodes[0]).toBe(nodes.get('c'));
+    expect(ul.childNodes[1]).toBe(nodes.get('a'));
+
+    reconcile(container, [list(['b'])]);
+    expect(ul.textContent).toBe('b');
+    expect(ul.childNodes.length).toBe(1);
+  });
+
+  test('custom map settings still drive the reconciler', () => {
+    const custom = dodo({
+      isMap: x => x instanceof Map,
+      mapIter: m => m.entries(),
+      mapGet: (m, k) => m.get(k),
+      newMap: obj => new Map(Object.entries(obj ?? {})),
+      mapPut: (m, k, v) => new Map(m).set(k, v),
+      mapMerge: (...ms) => new Map(ms.flatMap(m => [...m])),
+    });
+    const props = new Map([
+      ['id', 'custom'],
+      ['$styling', new Map([['color', 'green']])],
+    ]);
+    custom.reconcile(container, custom.h('div', props, custom.h('p', null, 'hi')));
+    expect(container.id).toBe('custom');
+    expect(container.style.color).toBe('green');
+    expect(container.textContent).toBe('hi');
+
+    custom.reconcile(
+      container,
+      custom.h('div', new Map([['id', 'custom2']]), custom.h('p', null, 'bye')),
+    );
+    expect(container.id).toBe('custom2');
+    expect(container.style.color).toBe('');
+    expect(container.textContent).toBe('bye');
+  });
+
+  test('settings.mapIter keeps returning independent entry pairs', () => {
+    const {settings} = dodo();
+    const entries = [...settings.mapIter({a: 1, b: 2})];
+    expect(entries).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+  });
+});
+
+describe('connected reordering', () => {
+  let mounted;
+  beforeEach(() => {
+    mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+  });
+
+  test('should reorder a keyed list that is live in the document', () => {
+    const list = order =>
+      h(
+        'ul',
+        null,
+        order.map(k => h('li', null, k).key(k)),
+      );
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const ul = mounted.firstChild;
+    expect(ul.isConnected).toBe(true);
+
+    reconcile(mounted, [list(['c', 'b', 'a'])]);
+    expect(ul.textContent).toEqual('cba');
+  });
+
+  test('should keep focus on an input while its siblings change', () => {
+    const list = items =>
+      h(
+        'div',
+        null,
+        items.map(item => h('input', {value: item, id: item}).key(item)),
+      );
+    reconcile(mounted, [list(['a', 'b'])]);
+    const focused = mounted.querySelector('#a');
+    focused.focus();
+    expect(document.activeElement).toBe(focused);
+
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    expect(document.activeElement).toBe(focused);
+    expect(mounted.firstChild.childNodes.length).toEqual(3);
+  });
+});
+
+describe('reordering around a focused child', () => {
+  let mounted;
+  const list = order =>
+    h(
+      'div',
+      null,
+      order.map(k => h('input', {id: k}).key(k)),
+    );
+  const order = () => [...mounted.firstChild.childNodes].map(n => n.id).join('');
+
+  beforeEach(() => {
+    mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+  });
+
+  test('should move a focused child to the front without blurring it', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['b', 'a', 'c'])]);
+    expect(order()).toEqual('bac');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should move a focused child to the back without blurring it', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#a');
+    focused.focus();
+
+    reconcile(mounted, [list(['b', 'c', 'a'])]);
+    expect(order()).toEqual('bca');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should reorder both sides of a focused child', () => {
+    reconcile(mounted, [list(['a', 'b', 'c', 'd'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['c', 'd', 'b', 'a'])]);
+    expect(order()).toEqual('cdba');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should reorder correctly after focus moves between children', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    mounted.querySelector('#a').focus();
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['c', 'b', 'a'])]);
+    expect(order()).toEqual('cba');
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should reorder correctly after focus leaves the list', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    mounted.querySelector('#b').focus();
+    mounted.querySelector('#b').blur();
+
+    reconcile(mounted, [list(['c', 'b', 'a'])]);
+    expect(order()).toEqual('cba');
+  });
+
+  test('should insert and remove around a focused child', () => {
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['x', 'b', 'y'])]);
+    expect(order()).toEqual('xby');
+    expect(document.activeElement).toBe(focused);
   });
 });

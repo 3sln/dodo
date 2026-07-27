@@ -5,7 +5,10 @@ import schedulerFactory from './src/scheduler.js';
 function dodoFactory(userSettings) {
   const vdomInstance = vdomFactory(userSettings);
   const htmlInstance = htmlFactory(vdomInstance);
-  const schedulerInstance = schedulerFactory(userSettings);
+  // `scheduler` replaces the built in animation frame scheduler wholesale. It
+  // must provide {schedule, flush, clear}. Useful for rendering synchronously,
+  // for driving frames from a test, or for scheduling on idle instead.
+  const schedulerInstance = userSettings?.scheduler ?? schedulerFactory(userSettings);
   return {
     ...vdomInstance,
     ...htmlInstance,

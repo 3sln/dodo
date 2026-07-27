@@ -14,11 +14,27 @@
     "vdom",
     "virtual dom",
     "ui",
-    "declarative"
+    "declarative",
+    "reactive",
+    "context"
   ],
+  "exports": {
+    ".": "./index.js",
+    "./reactive": "./reactive.js",
+    "./context": "./context.js",
+    "./observe": "./observe.js",
+    "./animate": "./animate.js",
+    "./style": "./style.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
   "files": [
     "index.js",
-    "dodo.js",
+    "reactive.js",
+    "context.js",
+    "observe.js",
+    "animate.js",
+    "style.js",
     "src/"
   ],
   "devDependencies": {
@@ -30,6 +46,7 @@
     "access": "public"
   },
   "scripts": {
+    "test": "bun test",
     "format": "prettier -w \"**/*.js\""
   }
 }

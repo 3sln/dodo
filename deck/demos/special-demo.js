@@ -10,9 +10,7 @@ export default driver => {
     },
     update(element, [label, visible]) {
       if (!visible) {
-        d.reconcile(element, [
-          d.p('Component detached.')
-        ]);
+        d.reconcile(element, [d.p('Component detached.')]);
         return;
       }
 
