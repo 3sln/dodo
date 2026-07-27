@@ -23,6 +23,8 @@
     "./reactive": "./reactive.js",
     "./context": "./context.js",
     "./observe": "./observe.js",
+    "./animate": "./animate.js",
+    "./style": "./style.js",
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -31,6 +33,8 @@
     "reactive.js",
     "context.js",
     "observe.js",
+    "animate.js",
+    "style.js",
     "src/"
   ],
   "devDependencies": {

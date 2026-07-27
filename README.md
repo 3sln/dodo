@@ -39,7 +39,7 @@ reconcile(container, [myVdom]);
 
 ## Optional modules
 
-Three modules ship alongside the core. Dodo's core does not import any of them,
+Five modules ship alongside the core. Dodo's core does not import any of them,
 so they cost nothing if you do not use them.
 
 ### Reactivity — `@3sln/dodo/reactive`
@@ -98,6 +98,41 @@ withVisibility(visible => (visible ? chart() : skeleton()), {root: '.scroller'})
 
 The underlying `elementSize` / `elementVisibility` cells are plain functions of
 an element with no dependency on dodo, usable on their own.
+
+### Enter and exit animation — `@3sln/dodo/animate`
+
+Holds an element on screen long enough to animate out, reporting which phase of
+appearing or disappearing it is in. Reversing mid-animation aborts whatever was
+in flight, so a stale completion cannot land later and win.
+
+```javascript
+import {withPresence} from '@3sln/dodo/animate';
+
+withPresence(isOpen, phase => panel({phase}), {
+  spawn: {classes: ['fade-in']},
+  despawn: {classes: ['fade-out']},
+  mode: 'remove',
+})
+```
+
+Durations are read from computed style rather than waited on with
+`transitionend`, so a transition that never fires cannot leave a phase stuck.
+
+### Scoped styling — `@3sln/dodo/style`
+
+Renders a subtree into a shadow root with constructable stylesheets adopted, so
+its CSS genuinely cannot leak in either direction.
+
+```javascript
+import {css, scoped} from '@3sln/dodo/style';
+
+const styles = css`p { color: rebeccapurple; }`;
+
+scoped({styleSheets: [styles]}, p('scoped'))
+```
+
+`css` is memoised per call site, so writing it inline in a render function does
+not rebuild the sheet every time.
 
 ### Baking your own
 

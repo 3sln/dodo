@@ -24,7 +24,7 @@ See the <a href="?c=%2Fcustomization.md"><strong>Customization</strong></a> card
 
 ## Optional Modules
 
-Dodo ships three modules that its core neither imports nor knows about. Ignore
+Dodo ships five modules that its core neither imports nor knows about. Ignore
 them entirely and Dodo behaves exactly the same.
 
 - **`@3sln/dodo/reactive`** — reactive rendering built on a two method `Cell`
@@ -34,3 +34,9 @@ them entirely and Dodo behaves exactly the same.
   See the <a href="?c=%2Fcontext.md"><strong>Context</strong></a> card.
 - **`@3sln/dodo/observe`** — element size and visibility as Cells. See the
   <a href="?c=%2Fobserve.md"><strong>Observing Elements</strong></a> card.
+- **`@3sln/dodo/animate`** — enter and exit animation. See the
+  <a href="?c=%2Fanimate.md"><strong>Enter and Exit Animation</strong></a> card.
+- **`@3sln/dodo/style`** — shadow DOM scoped CSS. See the
+  <a href="?c=%2Fstyle.md"><strong>Scoped Styling</strong></a> card.
+
+The first four build on the `Cell` protocol; `style` stands alone.

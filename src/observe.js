@@ -23,18 +23,7 @@
 // through is injected, not reached for.
 import {PENDING, connectable} from './reactive.js';
 import {settings as resolveSettings} from './settings.js';
-
-function windowFor(element, override) {
-  return override ?? element?.ownerDocument?.defaultView ?? globalThis;
-}
-
-function requireConstructor(view, name) {
-  const Ctor = view?.[name];
-  if (typeof Ctor !== 'function') {
-    throw new Error(`${name} is not available in this environment`);
-  }
-  return Ctor;
-}
+import {requireConstructor, windowFor} from './dom.js';
 
 /**
  * Walks up to the first ancestor that actually generates a box.
