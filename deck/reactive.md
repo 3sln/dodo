@@ -170,29 +170,26 @@ factory pattern the rest of the project uses:
 import reactive from '@3sln/dodo/src/reactive.js';
 import context from '@3sln/dodo/src/context.js';
 
-const {watch} = reactive({dodo: myDodo});
-const {withContext, useContext} = context({dodo: myDodo, reactive: {watch}});
+const userSettings = {dodo: myDodo};
+
+const reactiveApi = reactive(userSettings);
+const {withContext, useContext} = context({...userSettings, reactive: reactiveApi});
 ```
 
-Build `watch` **once** and inject it where it is needed. Every call to
-`reactive` produces a new one, and a `special` component's identity *is* its
+Build the reactive API **once** and inject it where it is needed. Every call to
+`reactive` produces a new `watch`, and a `special` component's identity *is* its
 descriptor object — the reconciler uses that identity to decide whether a DOM
 node can be reused, so two separately built `watch` components would never reuse
 each other's nodes.
 
-If you would rather not wire it up, `context` returns the `watch` it uses, so
-one factory call is enough:
-
-```javascript
-const {withContext, useContext, watch} = context({dodo: myDodo});
-```
+`context` requires the injection rather than falling back to a private copy,
+precisely so that mistake cannot happen quietly.
 
 | setting       | default                                     |
 | ------------- | ------------------------------------------- |
 | `dodo`        | required                                     |
 | `schedule`    | the instance's `schedule`                    |
 | `renderError` | a `<pre>` with the message and stack         |
-| `reactive`    | (`context` only) a private one is built      |
 
 Map handling and change detection are not settings here — they always come from
 the dodo instance, since a module that disagreed with its renderer about what a

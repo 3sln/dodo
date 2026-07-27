@@ -17,21 +17,38 @@ beforeEach(() => {
 });
 
 describe('module factory pattern', () => {
-  test('context renders through an injected reactive api', () => {
-    const {watch} = reactiveFactory({dodo: defaultDodo});
-    const api = contextFactory({dodo: defaultDodo, reactive: {watch}});
-    expect(api.watch).toBe(watch);
+  const reactiveFor = () => reactiveFactory({dodo: defaultDodo});
+
+  test('context requires an injected reactive api', () => {
+    expect(() => contextFactory({dodo: defaultDodo})).toThrow(
+      'context() requires a reactive API providing a watch component',
+    );
+    expect(() => contextFactory({dodo: defaultDodo, reactive: {}})).toThrow(
+      'context() requires a reactive API providing a watch component',
+    );
+    expect(() => contextFactory(defaultDodo)).toThrow(
+      'context() requires a reactive API providing a watch component',
+    );
   });
 
-  test('context builds its own watch when none is injected', () => {
-    const api = contextFactory({dodo: defaultDodo});
-    expect(typeof api.watch).toBe('function');
-    expect(api.watch).not.toBe(reactiveFactory({dodo: defaultDodo}).watch);
+  test('context does not re-export the reactive api', () => {
+    const api = contextFactory({dodo: defaultDodo, reactive: reactiveFor()});
+    expect(api.watch).toBeUndefined();
+    expect(Object.keys(api).sort()).toEqual([
+      'attachContext',
+      'contextCell',
+      'detachContext',
+      'readContext',
+      'updateContext',
+      'useContext',
+      'withContext',
+      'withEncapsulatedContext',
+    ]);
   });
 
-  test('the injected watch is the one consumers actually render with', () => {
+  test('consumers render through the injected watch', () => {
     const rendered = [];
-    const {watch: realWatch} = reactiveFactory({dodo: defaultDodo});
+    const {watch: realWatch} = reactiveFor();
     const spyWatch = (...args) => {
       rendered.push(args);
       return realWatch(...args);
@@ -52,29 +69,30 @@ describe('module factory pattern', () => {
     expect(rendered.length).toBe(1);
   });
 
-  test('rejects an injected reactive api with no watch', () => {
-    expect(() => contextFactory({dodo: defaultDodo, reactive: {}})).toThrow(
-      'must provide a watch component',
-    );
-  });
-
-  test('the bundled entry points share one watch', async () => {
+  test('the bundled context entry point uses the bundled watch', async () => {
     const [reactiveEntry, contextEntry] = await Promise.all([
       import('./reactive.js'),
       import('./context.js'),
     ]);
-    expect(contextEntry.watch).toBe(reactiveEntry.watch);
+    expect(typeof reactiveEntry.watch).toBe('function');
+    expect(contextEntry.watch).toBeUndefined();
+
+    // The components work, which is only possible with a valid injected watch.
+    defaultDodo.reconcile(container, [
+      contextEntry.withContext(
+        {v: 'ok'},
+        contextEntry.useContext(['v'], d => h('p', null, d.v)),
+      ),
+    ]);
+    expect(container.textContent).toBe('ok');
   });
 
   test('each factory call builds a distinct component', () => {
-    expect(reactiveFactory({dodo: defaultDodo}).watch).not.toBe(
-      reactiveFactory({dodo: defaultDodo}).watch,
-    );
+    expect(reactiveFor().watch).not.toBe(reactiveFor().watch);
   });
 
-  test('accepts a bare dodo instance in place of settings', () => {
+  test('reactive accepts a bare dodo instance in place of settings', () => {
     expect(typeof reactiveFactory(defaultDodo).watch).toBe('function');
-    expect(typeof contextFactory(defaultDodo).useContext).toBe('function');
   });
 
   test('requires a dodo instance', () => {
@@ -84,8 +102,7 @@ describe('module factory pattern', () => {
   });
 
   test('works with a frozen settings object', () => {
-    const userSettings = Object.freeze({dodo: defaultDodo});
-    expect(typeof reactiveFactory(userSettings).watch).toBe('function');
+    const userSettings = Object.freeze({dodo: defaultDodo, reactive: reactiveFor()});
     expect(typeof contextFactory(userSettings).useContext).toBe('function');
   });
 
@@ -94,14 +111,6 @@ describe('module factory pattern', () => {
     const resolved = settings({dodo: defaultDodo, mapGet: mine});
     expect(resolved.mapGet).toBe(defaultDodo.settings.mapGet);
     expect(resolved.mapGet).not.toBe(mine);
-  });
-
-  test('an injected reactive api inherits nothing from context settings', () => {
-    // The injected watch keeps its own scheduler; context does not re-wrap it.
-    const queued = [];
-    const {watch} = reactiveFactory({dodo: defaultDodo, schedule: fn => queued.push(fn)});
-    const api = contextFactory({dodo: defaultDodo, reactive: {watch}, schedule: fn => fn()});
-    expect(api.watch).toBe(watch);
   });
 });
 
