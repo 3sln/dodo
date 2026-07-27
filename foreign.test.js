@@ -1,6 +1,6 @@
 import {test, expect, describe, beforeEach, mock} from 'bun:test';
 import {Window} from 'happy-dom';
-import {dodo, settings as defaultSettings} from './index.js';
+import {dodo, h, reconcile, settings as defaultSettings} from './index.js';
 
 /**
  * A persistent map with nothing plain about it: the entries live in a private
@@ -177,5 +177,23 @@ describe('default settings', () => {
       ['a', 1],
       ['b', 2],
     ]);
+  });
+});
+
+describe('default mapEach enumerates own keys only', () => {
+  test('ignores enumerable properties on the prototype', () => {
+    const inherited = Object.create({ghost: 'inherited'});
+    inherited.real = 'own';
+    const seen = [];
+    defaultSettings.mapEach(inherited, (k, v) => seen.push([k, v]));
+    expect(seen).toEqual([['real', 'own']]);
+  });
+
+  test('a prototype-borne prop does not reach the DOM', () => {
+    const props = Object.create({id: 'from-prototype'});
+    props.title = 'own';
+    reconcile(container, h('div', props));
+    expect(container.title).toBe('own');
+    expect(container.id).toBe('');
   });
 });
