@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@3sln/dodo": "file:../",
-    "@3sln/deck": "0.0.14"
+    "@3sln/deck": "0.0.17"
   },
   "devDependencies": {
     "vite": "^5.4.20",
@@ -17,29 +17,9 @@
   },
   "@3sln/deck": {
     "title": "Dodo Deck",
+    "url": "https://dodo.3sln.com",
     "pinned": [
       "/introduction.md"
-    ],
-    "build": {
-      "importMap": {
-        "imports": {
-          "@3sln/dodo": "/lib/dodo/index.js",
-          "@3sln/dodo/reactive": "/lib/dodo/reactive.js",
-          "@3sln/dodo/context": "/lib/dodo/context.js",
-          "@3sln/dodo/observe": "/lib/dodo/observe.js",
-          "@3sln/dodo/animate": "/lib/dodo/animate.js",
-          "@3sln/dodo/style": "/lib/dodo/style.js"
-        }
-      },
-      "pick": {
-        "../index.js": "lib/dodo/index.js",
-        "../reactive.js": "lib/dodo/reactive.js",
-        "../context.js": "lib/dodo/context.js",
-        "../observe.js": "lib/dodo/observe.js",
-        "../src": "lib/dodo/src",
-        "../animate.js": "lib/dodo/animate.js",
-        "../style.js": "lib/dodo/style.js"
-      }
-    }
+    ]
   }
 }
