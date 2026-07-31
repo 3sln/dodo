@@ -13,20 +13,14 @@ beforeEach(() => {
 
 describe('reconcile function', () => {
   test('should reconcile an ELEMENT_NODE onto a matching DOM element', () => {
-    const vdom = h(
-      'div',
-      {
-        id: 'root',
-      },
-      h('span', null, 'Hello'),
-    );
+    const vdom = h('div', h('span', 'Hello')).props({id: 'root'});
     reconcile(container, vdom);
     expect(container.id).toEqual('root');
     expect(container.innerHTML).toEqual('<span>Hello</span>');
   });
 
   test('should throw an error when reconciling an ELEMENT_NODE onto a mismatched DOM element', () => {
-    const vdom = h('span', null, 'Hello');
+    const vdom = h('span', 'Hello');
     expect(() => reconcile(container, vdom)).toThrow('incompatible target for vdom');
   });
 
@@ -37,14 +31,12 @@ describe('reconcile function', () => {
   });
 
   test('should throw an error when reconciling an OPAQUE_NODE onto a mismatched DOM element', () => {
-    const vdom = h('span', {
-      class: 'opaque-container',
-    }).opaque();
+    const vdom = h('span').props({class: 'opaque-container'}).opaque();
     expect(() => reconcile(container, vdom)).toThrow('incompatible target for vdom');
   });
 
   test('should reconcile an ALIAS_NODE onto any DOM element', () => {
-    const myAlias = alias(text => h('p', null, text));
+    const myAlias = alias(text => h('p', text));
     const vdom = myAlias('Component Content');
     reconcile(container, vdom);
     expect(container.innerHTML).toEqual('<p>Component Content</p>');
@@ -56,7 +48,7 @@ describe('reconcile function', () => {
   });
 
   test('should reconcile an iterable of VNodes for the target element children', () => {
-    const vdom = [h('p', null, 'First'), h('p', null, 'Second')];
+    const vdom = [h('p', 'First'), h('p', 'Second')];
     reconcile(container, vdom);
     expect(container.innerHTML).toEqual('<p>First</p><p>Second</p>');
   });
@@ -75,42 +67,28 @@ describe('h function (ELEMENT_NODE) specific behavior', () => {
   });
 
   test('should update props on a re-render', () => {
-    const vdom1 = h('div', {
-      id: 'my-div',
-      disabled: false,
-    });
+    const vdom1 = h('div').props({id: 'my-div', disabled: false});
     reconcile(rootDiv, vdom1);
     expect(rootDiv.disabled).toBe(false);
 
-    const vdom2 = h('div', {
-      id: 'my-div',
-      disabled: true,
-    });
+    const vdom2 = h('div').props({id: 'my-div', disabled: true});
     reconcile(rootDiv, vdom2);
     expect(rootDiv.disabled).toBe(true);
   });
 
   test('should correctly reconcile children with keys', () => {
-    const vdom1 = h('div', null, [
-      h('li', null, 'A').key('a'),
-      h('li', null, 'B').key('b'),
-      h('li', null, 'C').key('c'),
-    ]);
+    const vdom1 = h('div', [h('li', 'A').key('a'), h('li', 'B').key('b'), h('li', 'C').key('c')]);
     reconcile(rootDiv, vdom1);
     expect(rootDiv.textContent).toEqual('ABC');
     const firstChild = rootDiv.childNodes[0];
 
-    const vdom2 = h('div', null, [
-      h('li', null, 'C').key('c'),
-      h('li', null, 'A').key('a'),
-      h('li', null, 'B').key('b'),
-    ]);
+    const vdom2 = h('div', [h('li', 'C').key('c'), h('li', 'A').key('a'), h('li', 'B').key('b')]);
     reconcile(rootDiv, vdom2);
     expect(rootDiv.textContent).toEqual('CAB');
     expect(rootDiv.childNodes[1]).toBe(firstChild);
   });
 
-  test('should handle omitted props object', () => {
+  test('should handle an element with no props at all', () => {
     const vdom = h('p', 'test content');
     reconcile(rootDiv, [vdom]);
     expect(rootDiv.innerHTML).toEqual('<p>test content</p>');
@@ -126,9 +104,7 @@ describe('o function (OPAQUE_NODE) specific behavior', () => {
   });
 
   test('should create an opaque node with props but not touch children', () => {
-    const vdom = h('div', {
-      id: 'opaque-div',
-    }).opaque();
+    const vdom = h('div').props({id: 'opaque-div'}).opaque();
     reconcile(rootDiv, vdom);
     expect(rootDiv.id).toEqual('opaque-div');
     expect(rootDiv.innerHTML).toEqual('<span>Initial Content</span>');
@@ -137,7 +113,7 @@ describe('o function (OPAQUE_NODE) specific behavior', () => {
 
 describe('alias function (ALIAS_NODE) specific behavior', () => {
   test('should re-render when component props change', () => {
-    const myComponent = alias(props => h('span', null, props.text));
+    const myComponent = alias(props => h('span', props.text));
     const vdom1 = myComponent({
       text: 'Hello',
     });
@@ -155,7 +131,7 @@ describe('alias function (ALIAS_NODE) specific behavior', () => {
   test('should dispatch event from alias to material element', () => {
     const eventSpy = mock();
     const myComponent = alias(function () {
-      return h('button', null, 'Hello').on({
+      return h('button', 'Hello').on({
         click: () => this.dispatchEvent(new window.CustomEvent('my-event', {bubbles: true})),
       });
     });
@@ -209,7 +185,7 @@ describe('Event Listeners', () => {
     const clickHandler = () => {
       clicked = true;
     };
-    const button = h('button', null, 'Click me').on({click: clickHandler});
+    const button = h('button', 'Click me').on({click: clickHandler});
     reconcile(container, [button]);
     const renderedButton = container.firstChild;
     renderedButton.dispatchEvent(new window.MouseEvent('click'));
@@ -221,10 +197,10 @@ describe('Event Listeners', () => {
     const oldListener = () => {
       oldListenerCalled = true;
     };
-    const oldNode = [h('button', null, 'Old button').on({click: oldListener})];
+    const oldNode = [h('button', 'Old button').on({click: oldListener})];
     reconcile(container, oldNode);
     const oldButtonElement = container.firstChild;
-    const newNode = [h('button', null, 'New button')];
+    const newNode = [h('button', 'New button')];
     reconcile(container, newNode);
     oldButtonElement.dispatchEvent(new window.MouseEvent('click'));
     expect(oldListenerCalled).toBe(false);
@@ -262,7 +238,7 @@ describe('VNode lifecycle hooks', () => {
     reconcile(container, [h('div').on({$update: reconcileHandler})]);
     expect(reconcileCount).toBe(1);
 
-    reconcile(container, [h('div', {id: 'updated'}).on({$update: reconcileHandler})]);
+    reconcile(container, [h('div').props({id: 'updated'}).on({$update: reconcileHandler})]);
     expect(reconcileCount).toBe(2);
 
     reconcile(container, null);
@@ -272,16 +248,16 @@ describe('VNode lifecycle hooks', () => {
 
 describe('children flattening', () => {
   test('should drop null, undefined and false children at any nesting depth', () => {
-    reconcile(container, h('div', null, [null, [undefined, false], h('p', null, 'kept')]));
+    reconcile(container, h('div', [null, [undefined, false], h('p', 'kept')]));
     expect(container.innerHTML).toEqual('<p>kept</p>');
   });
 
   test('should render 0 and the empty string as text', () => {
-    reconcile(container, h('div', null, [0, 'a', '', 0.0]));
+    reconcile(container, h('div', [0, 'a', '', 0.0]));
     expect(container.textContent).toEqual('0a0');
   });
 
-  test('should treat a nullish props slot as absent rather than as a child', () => {
+  test('should treat a nullish child as absent rather than as text', () => {
     reconcile(container, h('div', null, 'only child'));
     expect(container.childNodes.length).toEqual(1);
     expect(container.textContent).toEqual('only child');
@@ -291,10 +267,10 @@ describe('children flattening', () => {
 describe('keyed reconciliation', () => {
   test('should support keys that collide with Object.prototype members', () => {
     const build = text =>
-      h('div', null, [
-        h('li', null, `${text}1`).key('constructor'),
-        h('li', null, `${text}2`).key('__proto__'),
-        h('li', null, `${text}3`).key('toString'),
+      h('div', [
+        h('li', `${text}1`).key('constructor'),
+        h('li', `${text}2`).key('__proto__'),
+        h('li', `${text}3`).key('toString'),
       ]);
 
     reconcile(container, build('a'));
@@ -311,8 +287,7 @@ describe('keyed reconciliation', () => {
     const items = n =>
       h(
         'div',
-        null,
-        Array.from({length: n}, (_, i) => h('li', null, String(i))),
+        Array.from({length: n}, (_, i) => h('li', String(i))),
       );
     reconcile(container, items(50));
     const third = container.childNodes[2];
@@ -327,7 +302,7 @@ describe('prop safety', () => {
     const consoleError = console.error;
     console.error = () => {};
     try {
-      reconcile(container, h('div', {['__proto__']: {polluted: true}}));
+      reconcile(container, h('div').props({['__proto__']: {polluted: true}}));
     } finally {
       console.error = consoleError;
     }
@@ -352,8 +327,8 @@ describe('prop safety', () => {
 
 describe('node identity changes', () => {
   test('should reject reconciling a different tag onto an already managed target', () => {
-    reconcile(container, h('div', {id: 'first'}));
-    expect(() => reconcile(container, h('span', {id: 'second'}))).toThrow(
+    reconcile(container, h('div').props({id: 'first'}));
+    expect(() => reconcile(container, h('span').props({id: 'second'}))).toThrow(
       'incompatible target for vdom',
     );
   });
@@ -374,7 +349,7 @@ describe('node identity changes', () => {
   });
 
   test('should clear rendered content when an alias returns nothing', () => {
-    const conditional = alias(show => (show ? h('p', null, 'shown') : null));
+    const conditional = alias(show => (show ? h('p', 'shown') : null));
     reconcile(container, [conditional(true)]);
     expect(container.textContent).toEqual('shown');
     reconcile(container, [conditional(false)]);
@@ -386,7 +361,11 @@ describe('node identity changes', () => {
     const child = 'go';
     let clicked = null;
     const render = label =>
-      reconcile(container, [h('button', props, child).on({click: () => (clicked = label)})]);
+      reconcile(container, [
+        h('button', child)
+          .props(props)
+          .on({click: () => (clicked = label)}),
+      ]);
 
     render('first');
     render('second');
@@ -451,7 +430,8 @@ describe('scheduler', () => {
 describe('chained styling, classes, attrs and dataset', () => {
   test('should apply every facet chained onto a child vnode', () => {
     reconcile(container, [
-      h('p', {id: 'p'}, 'hi')
+      h('p', 'hi')
+        .props({id: 'p'})
         .style({color: 'red'})
         .classes('a', 'b')
         .attrs({role: 'note'})
@@ -467,7 +447,7 @@ describe('chained styling, classes, attrs and dataset', () => {
   });
 
   test('should update a facet on a reused child node', () => {
-    const render = color => reconcile(container, [h('p', {id: 'p'}).style({color})]);
+    const render = color => reconcile(container, [h('p').props({id: 'p'}).style({color})]);
     render('red');
     const p = container.firstChild;
     render('blue');
@@ -503,7 +483,7 @@ describe('chained styling, classes, attrs and dataset', () => {
     // the reconciler could notice a change in.
     const props = {id: 'p'};
     const hooks = {$update: mock()};
-    const render = color => reconcile(container, [h('p', props).style({color}).on(hooks)]);
+    const render = color => reconcile(container, [h('p').props(props).style({color}).on(hooks)]);
 
     render('red');
     render('red');
@@ -514,7 +494,7 @@ describe('chained styling, classes, attrs and dataset', () => {
   });
 
   test('should reject chaining onto alias and special nodes', () => {
-    const myAlias = alias(text => h('p', null, text));
+    const myAlias = alias(text => h('p', text));
     const mySpecial = special({});
     expect(() => myAlias('x').style({color: 'red'})).toThrow(
       '.style() can only be used on element nodes (h).',
@@ -545,51 +525,52 @@ describe('chained styling, classes, attrs and dataset', () => {
   });
 });
 
-describe('deprecated $-prefixed props', () => {
-  let consoleWarn;
-  beforeEach(() => {
-    consoleWarn = console.warn;
-    console.warn = () => {};
-  });
-  afterEach(() => {
-    console.warn = consoleWarn;
+describe('chained props', () => {
+  test('should replace rather than merge when called twice', () => {
+    reconcile(container, h('div').props({id: 'first'}).props({title: 'second'}));
+    expect(container.id).toBe('');
+    expect(container.title).toBe('second');
   });
 
-  test('should still apply and remove every facet', () => {
-    reconcile(
-      container,
-      h('div', {
-        $styling: {color: 'red'},
-        $attrs: {role: 'main'},
-        $dataset: {foo: 'a'},
-        $classes: ['c1'],
-      }),
-    );
-    expect(container.style.color).toBe('red');
-    expect(container.getAttribute('role')).toBe('main');
-    expect(container.dataset.foo).toBe('a');
-    expect(container.className).toBe('c1');
-
+  test('should restore the original property when a prop is dropped', () => {
+    container.title = 'original';
+    reconcile(container, h('div').props({title: 'managed'}));
+    expect(container.title).toBe('managed');
     reconcile(container, h('div'));
-    expect(container.style.color).toBe('');
-    expect(container.getAttribute('role')).toBe(null);
-    expect(container.dataset.foo).toBeUndefined();
-    expect(container.className).toBe('');
+    expect(container.title).toBe('original');
   });
 
-  test('should warn once per prop name', () => {
-    const warn = mock();
-    console.warn = warn;
-    // A fresh instance, because the notice is only given once per prop name.
-    const fresh = dodo();
-    fresh.reconcile(container, fresh.h('div', {$dataset: {foo: 'a'}}));
-    fresh.reconcile(container, fresh.h('div', {$dataset: {foo: 'b'}}));
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain('.data()');
+  test('should not re-render when props are rebuilt with the same contents', () => {
+    const hooks = {$update: mock()};
+    const render = id => reconcile(container, [h('p').props({id}).on(hooks)]);
 
-    fresh.reconcile(container, fresh.h('div', {$classes: ['a']}));
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls[1][0]).toContain('.classes()');
+    render('a');
+    render('a');
+    expect(hooks.$update).toHaveBeenCalledTimes(1);
+
+    render('b');
+    expect(hooks.$update).toHaveBeenCalledTimes(2);
+  });
+
+  test('should reject chaining onto alias and special nodes', () => {
+    const myAlias = alias(text => h('p', text));
+    expect(() => myAlias('x').props({id: 'a'})).toThrow(
+      '.props() can only be used on element nodes (h).',
+    );
+    expect(() => special({})('x').props({id: 'a'})).toThrow(
+      '.props() can only be used on element nodes (h).',
+    );
+  });
+
+  test('should reject a map in the first child slot, where props used to go', () => {
+    expect(() => h('div', {id: 'root'})).toThrow(
+      'h() takes children after the tag; chain .props({...}) for properties.',
+    );
+    // A custom instance rejects whatever it considers a map.
+    const custom = dodo({isMap: x => x instanceof Map});
+    expect(() => custom.h('div', new Map([['id', 'root']]))).toThrow('h() takes children');
+    // ...and nothing else. A plain object is an ordinary child there.
+    expect(() => custom.h('div', {id: 'root'})).not.toThrow();
   });
 });
 
@@ -597,7 +578,8 @@ describe('special props, namespaces and custom settings', () => {
   test('styling, attrs, dataset add and remove', () => {
     reconcile(
       container,
-      h('div', {id: 'root'})
+      h('div')
+        .props({id: 'root'})
         .style({color: 'red', 'font-size': '12px'})
         .attrs({role: 'main', 'aria-label': 'x'})
         .data({foo: 'a', bar: 'b'})
@@ -610,7 +592,8 @@ describe('special props, namespaces and custom settings', () => {
 
     reconcile(
       container,
-      h('div', {id: 'root'})
+      h('div')
+        .props({id: 'root'})
         .style({color: 'blue'})
         .attrs({role: 'nav'})
         .data({foo: 'z'})
@@ -622,14 +605,14 @@ describe('special props, namespaces and custom settings', () => {
     expect(container.dataset.bar).toBeUndefined();
     expect(container.className).toBe('c2');
 
-    reconcile(container, h('div', {id: 'root'}));
+    reconcile(container, h('div').props({id: 'root'}));
     expect(container.style.color).toBe('');
     expect(container.getAttribute('role')).toBe(null);
     expect(container.className).toBe('');
   });
 
   test('svg children get the svg namespace and attribute props', () => {
-    reconcile(container, [h('svg', {width: '10'}, h('circle', {cx: '1', r: '2'}))]);
+    reconcile(container, [h('svg', h('circle').props({cx: '1', r: '2'})).props({width: '10'})]);
     const svg = container.firstChild;
     expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
     expect(svg.firstChild.namespaceURI).toBe('http://www.w3.org/2000/svg');
@@ -641,8 +624,7 @@ describe('special props, namespaces and custom settings', () => {
     const list = order =>
       h(
         'ul',
-        null,
-        order.map(k => h('li', null, k).key(k)),
+        order.map(k => h('li', k).key(k)),
       );
     reconcile(container, [list(['a', 'b', 'c'])]);
     const ul = container.firstChild;
@@ -670,7 +652,10 @@ describe('special props, namespaces and custom settings', () => {
     const props = new Map([['id', 'custom']]);
     custom.reconcile(
       container,
-      custom.h('div', props, custom.h('p', null, 'hi')).style(new Map([['color', 'green']])),
+      custom
+        .h('div', custom.h('p', 'hi'))
+        .props(props)
+        .style(new Map([['color', 'green']])),
     );
     expect(container.id).toBe('custom');
     expect(container.style.color).toBe('green');
@@ -678,7 +663,7 @@ describe('special props, namespaces and custom settings', () => {
 
     custom.reconcile(
       container,
-      custom.h('div', new Map([['id', 'custom2']]), custom.h('p', null, 'bye')),
+      custom.h('div', custom.h('p', 'bye')).props(new Map([['id', 'custom2']])),
     );
     expect(container.id).toBe('custom2');
     expect(container.style.color).toBe('');
@@ -706,8 +691,7 @@ describe('connected reordering', () => {
     const list = order =>
       h(
         'ul',
-        null,
-        order.map(k => h('li', null, k).key(k)),
+        order.map(k => h('li', k).key(k)),
       );
     reconcile(mounted, [list(['a', 'b', 'c'])]);
     const ul = mounted.firstChild;
@@ -721,8 +705,7 @@ describe('connected reordering', () => {
     const list = items =>
       h(
         'div',
-        null,
-        items.map(item => h('input', {value: item, id: item}).key(item)),
+        items.map(item => h('input').props({value: item, id: item}).key(item)),
       );
     reconcile(mounted, [list(['a', 'b'])]);
     const focused = mounted.querySelector('#a');
@@ -740,8 +723,7 @@ describe('reordering around a focused child', () => {
   const list = order =>
     h(
       'div',
-      null,
-      order.map(k => h('input', {id: k}).key(k)),
+      order.map(k => h('input').props({id: k}).key(k)),
     );
   const order = () => [...mounted.firstChild.childNodes].map(n => n.id).join('');
 

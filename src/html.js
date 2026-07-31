@@ -1,9 +1,12 @@
+// Helpers take children only; properties are chained on with `.props()`. The
+// void elements therefore take nothing at all, which is what keeps them from
+// being handed children they cannot have.
 export default function htmlFactory({h}) {
   return {
     // Document metadata
     title: (...args) => h('title', ...args),
-    meta: props => h('meta', props),
-    link: props => h('link', props),
+    meta: () => h('meta'),
+    link: () => h('link'),
     style: (...args) => h('style', ...args),
     script: (...args) => h('script', ...args),
     noscript: (...args) => h('noscript', ...args),
@@ -67,21 +70,21 @@ export default function htmlFactory({h}) {
     wbr: () => h('wbr'),
 
     // Image and multimedia
-    area: props => h('area', props),
+    area: () => h('area'),
     audio: (...args) => h('audio', ...args),
-    img: props => h('img', props),
+    img: () => h('img'),
     map: (...args) => h('map', ...args),
-    track: props => h('track', props),
+    track: () => h('track'),
     video: (...args) => h('video', ...args),
 
     // Embedded content
-    embed: props => h('embed', props),
+    embed: () => h('embed'),
     iframe: (...args) => h('iframe', ...args),
     object: (...args) => h('object', ...args),
-    param: props => h('param', props),
+    param: () => h('param'),
     picture: (...args) => h('picture', ...args),
     portal: (...args) => h('portal', ...args),
-    source: props => h('source', props),
+    source: () => h('source'),
 
     // SVG and MathML
     svg: (...args) => h('svg', ...args),
@@ -92,7 +95,7 @@ export default function htmlFactory({h}) {
 
     // Table content
     caption: (...args) => h('caption', ...args),
-    col: props => h('col', props),
+    col: () => h('col'),
     colgroup: (...args) => h('colgroup', ...args),
     table: (...args) => h('table', ...args),
     tbody: (...args) => h('tbody', ...args),
@@ -107,7 +110,7 @@ export default function htmlFactory({h}) {
     datalist: (...args) => h('datalist', ...args),
     fieldset: (...args) => h('fieldset', ...args),
     form: (...args) => h('form', ...args),
-    input: props => h('input', props),
+    input: () => h('input'),
     label: (...args) => h('label', ...args),
     legend: (...args) => h('legend', ...args),
     meter: (...args) => h('meter', ...args),

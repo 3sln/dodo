@@ -66,7 +66,7 @@ describe('css', () => {
 
 describe('scoped', () => {
   test('renders children into a shadow root', () => {
-    reconcile(container, [scoped(h('p', null, 'inside'))]);
+    reconcile(container, [scoped(h('p', 'inside'))]);
     const host = container.firstChild;
     expect(host.shadowRoot).toBeTruthy();
     expect(host.shadowRoot.textContent).toBe('inside');
@@ -76,14 +76,14 @@ describe('scoped', () => {
 
   test('adopts the stylesheets it is given', () => {
     const sheet = sheetFor`p { color: red; }`;
-    reconcile(container, [scoped({styleSheets: [sheet]}, h('p', null, 'x'))]);
+    reconcile(container, [scoped({styleSheets: [sheet]}, h('p', 'x'))]);
     expect(container.firstChild.shadowRoot.adoptedStyleSheets).toEqual([sheet]);
   });
 
   test('does not reassign an unchanged stylesheet list', () => {
     const sheet = sheetFor`p { color: red; }`;
     const sheets = [sheet];
-    reconcile(container, [scoped({styleSheets: sheets}, h('p', null, 'a'))]);
+    reconcile(container, [scoped({styleSheets: sheets}, h('p', 'a'))]);
     const shadow = container.firstChild.shadowRoot;
 
     let assignments = 0;
@@ -97,42 +97,42 @@ describe('scoped', () => {
       },
     });
 
-    reconcile(container, [scoped({styleSheets: [sheet]}, h('p', null, 'b'))]);
+    reconcile(container, [scoped({styleSheets: [sheet]}, h('p', 'b'))]);
     expect(assignments).toBe(0);
 
-    reconcile(container, [scoped({styleSheets: []}, h('p', null, 'c'))]);
+    reconcile(container, [scoped({styleSheets: []}, h('p', 'c'))]);
     expect(assignments).toBe(1);
   });
 
   test('can drop the last stylesheet', () => {
     const sheet = sheetFor`p { color: red; }`;
-    reconcile(container, [scoped({styleSheets: [sheet]}, h('p', null, 'x'))]);
+    reconcile(container, [scoped({styleSheets: [sheet]}, h('p', 'x'))]);
     const shadow = container.firstChild.shadowRoot;
     expect(shadow.adoptedStyleSheets.length).toBe(1);
 
     // Bones only ever assigned a non-empty list, so this left the sheet adopted.
-    reconcile(container, [scoped({styleSheets: []}, h('p', null, 'x'))]);
+    reconcile(container, [scoped({styleSheets: []}, h('p', 'x'))]);
     expect(shadow.adoptedStyleSheets.length).toBe(0);
   });
 
   test('updates its children in place', () => {
-    reconcile(container, [scoped(h('p', null, 'first'))]);
+    reconcile(container, [scoped(h('p', 'first'))]);
     const shadow = container.firstChild.shadowRoot;
     const paragraph = shadow.firstChild;
 
-    reconcile(container, [scoped(h('p', null, 'second'))]);
+    reconcile(container, [scoped(h('p', 'second'))]);
     expect(shadow.textContent).toBe('second');
     expect(shadow.firstChild).toBe(paragraph);
   });
 
   test('works with no props at all', () => {
-    reconcile(container, [scoped(h('p', null, 'a'), h('span', null, 'b'))]);
+    reconcile(container, [scoped(h('p', 'a'), h('span', 'b'))]);
     expect(container.firstChild.shadowRoot.textContent).toBe('ab');
   });
 
   test('tears down its shadow content when detached', () => {
     const detached = mock();
-    reconcile(container, [scoped(h('p', null, 'x').on({$detach: detached}))]);
+    reconcile(container, [scoped(h('p', 'x').on({$detach: detached}))]);
     const shadow = container.firstChild.shadowRoot;
 
     reconcile(container, null);
@@ -148,7 +148,7 @@ describe('scoped', () => {
     container.appendChild(host);
     const existing = host.attachShadow({mode: 'open'});
 
-    reconcile(host, [scoped(h('p', null, 'x'))]);
+    reconcile(host, [scoped(h('p', 'x'))]);
     // `scoped` renders into its own node, so the host's root is untouched.
     expect(host.shadowRoot).toBe(existing);
     expect(host.firstChild.shadowRoot.textContent).toBe('x');
@@ -161,7 +161,7 @@ describe('reconcileShadow', () => {
     container.appendChild(host);
     const sheet = sheetFor`p { color: red; }`;
 
-    const shadow = reconcileShadow(host, [h('p', null, 'imperative')], [sheet]);
+    const shadow = reconcileShadow(host, [h('p', 'imperative')], [sheet]);
     expect(shadow.textContent).toBe('imperative');
     expect(shadow.adoptedStyleSheets).toEqual([sheet]);
 

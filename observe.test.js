@@ -255,7 +255,7 @@ describe('withElementSize', () => {
     laidOut.style.display = 'block';
     container.appendChild(laidOut);
 
-    reconcile(laidOut, [withElementSize(size => h('p', null, `${size.width}x${size.height}`))]);
+    reconcile(laidOut, [withElementSize(size => h('p', `${size.width}x${size.height}`))]);
     expect(laidOut.textContent).toBe('0x0');
 
     resizeObservers[0].emit({width: 200, height: 100});
@@ -264,7 +264,7 @@ describe('withElementSize', () => {
   });
 
   test('disconnects the observer when detached', () => {
-    reconcile(container, [withElementSize(size => h('p', null, String(size.width)))]);
+    reconcile(container, [withElementSize(size => h('p', String(size.width)))]);
     expect(resizeObservers[0].disconnected).toBe(false);
 
     reconcile(container, null);
@@ -274,7 +274,7 @@ describe('withElementSize', () => {
   test('does not rebuild the observer for an equal options literal', () => {
     const render = () =>
       reconcile(container, [
-        withElementSize(size => h('p', null, String(size.width)), {box: 'border-box'}),
+        withElementSize(size => h('p', String(size.width)), {box: 'border-box'}),
       ]);
 
     render();
@@ -286,7 +286,7 @@ describe('withElementSize', () => {
 
   test('rebuilds the observer when the options change', () => {
     const render = box =>
-      reconcile(container, [withElementSize(size => h('p', null, String(size.width)), {box})]);
+      reconcile(container, [withElementSize(size => h('p', String(size.width)), {box})]);
 
     render('content-box');
     expect(resizeObservers.length).toBe(1);
@@ -298,7 +298,7 @@ describe('withElementSize', () => {
   });
 
   test('does not re-render when the size did not change', () => {
-    const builder = mock(size => h('p', null, String(size.width)));
+    const builder = mock(size => h('p', String(size.width)));
     reconcile(container, [withElementSize(builder)]);
     expect(builder).toHaveBeenCalledTimes(1);
 
@@ -315,8 +315,8 @@ describe('withElementSize', () => {
 describe('withVisibility', () => {
   test('renders a placeholder until visibility is known', () => {
     reconcile(container, [
-      withVisibility(visible => h('p', null, visible ? 'seen' : 'hidden'), {
-        placeholder: () => h('em', null, 'unknown'),
+      withVisibility(visible => h('p', visible ? 'seen' : 'hidden'), {
+        placeholder: () => h('em', 'unknown'),
       }),
     ]);
     expect(container.textContent).toBe('unknown');
@@ -327,7 +327,7 @@ describe('withVisibility', () => {
   });
 
   test('gives its own node a box and observes it', () => {
-    reconcile(container, [withVisibility(v => h('p', null, String(v)), {initial: false})]);
+    reconcile(container, [withVisibility(v => h('p', String(v)), {initial: false})]);
     const node = container.firstChild;
     expect(node.style.display).toBe('block');
     expect(intersectionObservers[0].targets[0]).toBe(node);
@@ -335,7 +335,7 @@ describe('withVisibility', () => {
 
   test('accepts a different display', () => {
     reconcile(container, [
-      withVisibility(v => h('p', null, String(v)), {display: 'inline-block', initial: false}),
+      withVisibility(v => h('p', String(v)), {display: 'inline-block', initial: false}),
     ]);
     expect(container.firstChild.style.display).toBe('inline-block');
   });
@@ -345,14 +345,12 @@ describe('withVisibility', () => {
     laidOut.style.display = 'block';
     container.appendChild(laidOut);
 
-    reconcile(laidOut, [
-      withVisibility(v => h('p', null, String(v)), {display: null, initial: false}),
-    ]);
+    reconcile(laidOut, [withVisibility(v => h('p', String(v)), {display: null, initial: false})]);
     expect(intersectionObservers[0].targets[0]).toBe(laidOut);
   });
 
   test('disconnects the observer when detached', () => {
-    reconcile(container, [withVisibility(v => h('p', null, String(v)), {initial: false})]);
+    reconcile(container, [withVisibility(v => h('p', String(v)), {initial: false})]);
     expect(intersectionObservers[0].disconnected).toBe(false);
 
     reconcile(container, null);
@@ -391,8 +389,8 @@ describe('missing observer support', () => {
     console.error = () => {};
     try {
       reconcile(container, [
-        withElementSize(size => h('p', null, String(size.width)), {
-          error: err => h('b', null, err.message),
+        withElementSize(size => h('p', String(size.width)), {
+          error: err => h('b', err.message),
         }),
       ]);
     } finally {

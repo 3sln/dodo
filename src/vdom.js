@@ -19,15 +19,20 @@ function sameTagName(nodeName, tag) {
   return typeof tag === 'string' && nodeName.toLowerCase() === tag.toLowerCase();
 }
 
-// Styling, classes, attributes and dataset all live in one `$` object rather
-// than in a field of their own each. A vnode is allocated per element per
-// render, so every optional field is another shape for the engine to track; one
-// container also makes "did any of these change" a single identity check for
-// the common node that has none of them.
-function setSpecial(vnode, method, name, value) {
+// Props, styling, classes, attributes and dataset belong to an element, not to
+// an alias's or a special's argument list.
+function assertElementNode(vnode, method) {
   if (vnode.type !== ELEMENT_NODE && vnode.type !== OPAQUE_NODE) {
     throw new Error(`${method} can only be used on element nodes (h).`);
   }
+}
+
+// Styling, classes, attributes and dataset all live in one `$` object rather
+// than in a field of their own each. It keeps "did any of these change" to a
+// single identity check for the common node that chains none of them, and the
+// object is only allocated for a node that chains at least one.
+function setSpecial(vnode, method, name, value) {
+  assertElementNode(vnode, method);
   // All four keys are written up front so that every `$` object shares a shape.
   if (!vnode.$) {
     vnode.$ = {styling: undefined, classes: undefined, attrs: undefined, dataset: undefined};
@@ -41,6 +46,21 @@ class VNode {
     this.type = type;
     this.tag = tag;
     this.args = args;
+    // Declared up front so that every vnode shares one shape regardless of
+    // which setters are chained onto it, or in what order. Writing a field that
+    // already exists is not a shape transition; adding one is.
+    this.p = undefined;
+    this.k = undefined;
+    this.hooks = undefined;
+    this.$ = undefined;
+  }
+
+  // Every setter replaces rather than merges: calling one twice leaves only the
+  // second value.
+  props(props) {
+    assertElementNode(this, '.props()');
+    this.p = props;
+    return this;
   }
 
   key(k) {
@@ -53,8 +73,6 @@ class VNode {
     return this;
   }
 
-  // The setters below replace rather than merge, like `.key()` and `.on()` do:
-  // calling one twice leaves only the second value.
   style(styling) {
     return setSpecial(this, '.style()', 'styling', styling);
   }
@@ -224,19 +242,6 @@ export default userSettings => {
 
   const EMPTY_MAP = newMap({});
 
-  // The `$`-prefixed props predate the chained setters and are on their way
-  // out. Warned once per prop name per instance rather than once per element: a
-  // render loop would otherwise turn the notice into a flood.
-  const warnedDeprecatedProps = new Set();
-
-  function warnDeprecatedProp(propName, replacement) {
-    if (warnedDeprecatedProps.has(propName)) return;
-    warnedDeprecatedProps.add(propName);
-    console.warn(
-      `The '${propName}' prop is deprecated and will be removed. Chain ${replacement} onto the vnode instead.`,
-    );
-  }
-
   function toIterator(iterableOrIterator) {
     if (iterableOrIterator == null) return [][Symbol.iterator]();
     if (typeof iterableOrIterator[Symbol.iterator] === 'function') {
@@ -319,9 +324,9 @@ export default userSettings => {
 
   const flattenSeq = userSettings?.flattenSeq ?? defaultFlattenSeq;
 
-  function flattenVNodeChildren(children, startIndex) {
+  function flattenVNodeChildren(children) {
     const array = [];
-    for (let i = startIndex; i < children.length; i++) {
+    for (let i = 0; i < children.length; i++) {
       const item = children[i];
       if (isBlank(item)) continue;
       if (!isSeq(item)) {
@@ -339,13 +344,17 @@ export default userSettings => {
     return isBlank(value) ? '' : String(value);
   }
 
-  function h(tag, props, ...children) {
-    if (!isMap(props)) {
-      // An explicit nullish props slot means "no props", not "render nothing".
-      if (props !== null && props !== undefined) children.unshift(props);
-      props = EMPTY_MAP;
+  // Everything after the tag is a child. Properties are chained on with
+  // `.props()`, which is also the only way to reach an element's property when
+  // its name collides with one of the setters.
+  function h(tag, ...children) {
+    // A map in the first child slot is where props used to go, and a map is
+    // never a meaningful child — it would render as `[object Object]`. The
+    // check costs what reading the old props slot cost, so it stays.
+    if (isMap(children[0])) {
+      throw new Error('h() takes children after the tag; chain .props({...}) for properties.');
     }
-    return new VNode(ELEMENT_NODE, convertTagName(tag), [props, ...children]);
+    return new VNode(ELEMENT_NODE, convertTagName(tag), children);
   }
 
   // Visitors are hoisted to the factory closure rather than written inline, so
@@ -477,83 +486,33 @@ export default userSettings => {
   }
 
   function applyProp(name, newValue, target, oldProps, isHtml) {
+    if (Object.is(newValue, mapGet(oldProps, name))) return;
+
     const propName = convertPropName(name);
-    const oldValue = mapGet(oldProps, name);
-
-    if (Object.is(newValue, oldValue)) return;
-
-    switch (propName) {
-      case '$styling': {
-        warnDeprecatedProp('$styling', '.style()');
-        if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-        reconcileElementStyling(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-        break;
-      }
-      case '$classes': {
-        warnDeprecatedProp('$classes', '.classes()');
-        if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
-        reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
-        break;
-      }
-      case '$attrs': {
-        warnDeprecatedProp('$attrs', '.attrs()');
-        if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-        reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-        break;
-      }
-      case '$dataset': {
-        warnDeprecatedProp('$dataset', '.data()');
-        if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-        reconcileElementDataset(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-        break;
-      }
-      default: {
-        if (isHtml) {
-          setElementProp(target, target[NODE_STATE], propName, newValue);
-        } else {
-          if (newValue === undefined) {
-            target.removeAttribute(propName);
-          } else {
-            target.setAttribute(propName, newValue);
-          }
-        }
-        break;
-      }
+    if (isHtml) {
+      setElementProp(target, target[NODE_STATE], propName, newValue);
+    } else if (newValue === undefined) {
+      target.removeAttribute(propName);
+    } else {
+      target.setAttribute(propName, newValue);
     }
   }
 
-  function restoreRemovedProp(name, oldValue, target, props, isHtml) {
+  function restoreRemovedProp(name, _oldValue, target, props, isHtml) {
     if (mapGet(props, name) !== undefined) return; // it wasn't removed
 
     const propName = convertPropName(name);
-    switch (propName) {
-      case '$styling':
-        reconcileElementStyling(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-        break;
-      case '$classes':
-        reconcileElementClasses(target, oldValue ?? [], []);
-        break;
-      case '$attrs':
-        reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-        break;
-      case '$dataset':
-        reconcileElementDataset(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-        break;
-      default: {
-        if (isHtml) {
-          restoreElementProp(target, target[NODE_STATE], propName);
-        } else {
-          target.removeAttribute(propName);
-        }
-        break;
-      }
+    if (isHtml) {
+      restoreElementProp(target, target[NODE_STATE], propName);
+    } else {
+      target.removeAttribute(propName);
     }
   }
 
   function reconcileElementProps(target, props) {
     const nodeState = target[NODE_STATE];
     const isHtml = target.namespaceURI === HTML_NAMESPACE;
-    const oldProps = nodeState.vdom?.args[0] ?? EMPTY_MAP;
+    const oldProps = nodeState.vdom?.p ?? EMPTY_MAP;
 
     mapEach(props, applyProp, target, oldProps, isHtml);
     mapEach(oldProps, restoreRemovedProp, target, props, isHtml);
@@ -625,15 +584,13 @@ export default userSettings => {
 
     switch (newVdom.type) {
       case ELEMENT_NODE: {
-        reconcileElementProps(target, args[0]);
-        // After the props, so that an element still carrying a deprecated
-        // `$`-prefixed prop for the same facet does not win over the chain.
+        reconcileElementProps(target, newVdom.p ?? EMPTY_MAP);
         reconcileElementSpecials(target, newVdom.$, oldVdom?.$);
-        reconcileElementChildren(target, flattenVNodeChildren(args, 1));
+        reconcileElementChildren(target, flattenVNodeChildren(args));
         break;
       }
       case OPAQUE_NODE: {
-        reconcileElementProps(target, args[0]);
+        reconcileElementProps(target, newVdom.p ?? EMPTY_MAP);
         reconcileElementSpecials(target, newVdom.$, oldVdom?.$);
         break;
       }
@@ -757,13 +714,15 @@ export default userSettings => {
     );
   }
 
-  // A reused node only needs a second pass when its arguments, its hooks or its
-  // chained specials changed; comparing hooks too means a node whose props are
-  // stable but whose listeners are freshly bound each render still gets those
-  // listeners swapped.
+  // A reused node only needs a second pass when something it carries changed.
+  // Props and specials are compared as maps in their own right, so an object
+  // literal rebuilt with the same contents each render costs nothing; hooks are
+  // compared so that a node whose props are stable but whose listeners are
+  // freshly bound still gets those listeners swapped.
   function vnodeChanged(oldVdom, newVdom) {
     return (
       shouldUpdate(oldVdom.args, newVdom.args) ||
+      shouldUpdate(oldVdom.p, newVdom.p) ||
       shouldUpdate(oldVdom.hooks, newVdom.hooks) ||
       specialsChanged(oldVdom.$, newVdom.$)
     );

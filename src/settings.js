@@ -31,8 +31,7 @@ function defaultRenderError(h) {
   return error =>
     h(
       'pre',
-      null,
-      h('strong', null, `Error: ${error?.message ?? String(error)}`),
+      h('strong', `Error: ${error?.message ?? String(error)}`),
       '\n\n',
       error?.stack ?? '',
     ).style({

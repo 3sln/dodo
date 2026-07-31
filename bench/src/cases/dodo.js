@@ -81,36 +81,39 @@ function _random(max) {
 // --- Dodo Component --- //
 
 // The key is removed from inside the alias
+// `className` is kept as a plain property rather than `.classes()`, so that
+// this measures the same single property write the React case does.
 const row = dd.alias(({item}) => {
-  return dd.tr(
-    {id: item.id},
-    dd.td({className: 'col-md-1'}, item.id),
-    dd.td({className: 'col-md-4'}, dd.a(item.label)),
-    dd.td(
-      {className: 'col-md-1'},
-      dd.a(dd.span({className: 'glyphicon glyphicon-remove', 'aria-hidden': 'true'})),
-    ),
-    dd.td({className: 'col-md-6'}),
-  );
+  return dd
+    .tr(
+      dd.td(item.id).props({className: 'col-md-1'}),
+      dd.td(dd.a(item.label)).props({className: 'col-md-4'}),
+      dd
+        .td(dd.a(dd.span().props({className: 'glyphicon glyphicon-remove', 'aria-hidden': 'true'})))
+        .props({className: 'col-md-1'}),
+      dd.td().props({className: 'col-md-6'}),
+    )
+    .props({id: item.id});
 });
 
 const app = dd.alias(({items}) => {
-  return dd.div(
-    {className: 'container'},
-    dd.div(
-      {className: 'jumbotron'},
-      dd.div({className: 'row'}, dd.div({className: 'col-md-6'}, dd.h1('dodo'))),
-    ),
-    dd.table(
-      {className: 'table table-hover table-striped test-data'},
-      dd.tbody(
-        items.map(item =>
-          // The key is applied to the alias VNode itself
-          row({item}).key(item.id),
-        ),
-      ),
-    ),
-  );
+  return dd
+    .div(
+      dd
+        .div(dd.div(dd.div(dd.h1('dodo')).props({className: 'col-md-6'})).props({className: 'row'}))
+        .props({className: 'jumbotron'}),
+      dd
+        .table(
+          dd.tbody(
+            items.map(item =>
+              // The key is applied to the alias VNode itself
+              row({item}).key(item.id),
+            ),
+          ),
+        )
+        .props({className: 'table table-hover table-striped test-data'}),
+    )
+    .props({className: 'container'});
 });
 
 // --- Benchmark Cases --- //

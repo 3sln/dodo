@@ -25,8 +25,11 @@ This section applies when you are modifying the `dodo` library itself.
 
 ### Core Concepts
 - **Factory Pattern:** The core logic resides in `src/vdom.js`. Be aware of which functions are inside the factory closure (and depend on settings) and which are static helpers outside of it.
-- **Chained Specials:** Styling, classes, attributes and dataset entries are chained onto the vnode (`.style()`, `.classes()`, `.attrs()`, `.data()`) rather than passed as props, and are held in a single `$` object on the `VNode`. One container rather than four fields: a vnode is allocated per element per render, so every optional field is another shape for the engine to track, and it makes "did any of these change" a single identity check for the majority of nodes that chain none of them. The `$`-prefixed props they replace (`$styling`, `$classes`, `$attrs`, `$dataset`) are deprecated — still handled in `applyProp`, warning once per prop name per instance, and to be deleted wholesale. Keep that path isolated so the deletion stays a clean subtraction, and do not mix the two forms for the same facet on one element.
-- **Comparing Specials:** `vnodeChanged` compares args, hooks and the specials facet by facet. Comparing the `$` container itself would be worse than useless — its values are rebuilt per render, so it would always report a change; comparing `styling` against `styling` lets `shouldUpdate`'s shallow map compare do its job, and a `.style()` map with unchanged contents costs no second pass at all.
+- **Everything Is Chained:** `h(tag, ...children)` takes children and nothing else. Props live in `vnode.p` via `.props()`; styling, classes, attributes and dataset live in the `$` object via `.style()`, `.classes()`, `.attrs()` and `.data()`. Nothing about an element travels in the argument list, which is why no directive needs a `$` prefix to stay clear of a real property name any more.
+- **Why Not A Props Argument:** In the argument list, props were compared by identity as a member of `args`, so an object literal rebuilt each render — every object literal in a render function — always looked changed and bought a wasted second pass over the element. Chained maps are compared as maps, through the same `shouldUpdate` as everything else, so unchanged contents cost nothing. Do not move props back into `args` for symmetry with `alias`; the asymmetry is the point.
+- **`h()` Rejects A Map First Child:** That slot is where props used to go and a map is never a meaningful child, so it throws rather than rendering `[object Object]`. It costs exactly what reading the old props slot cost. Do not remove it as migration scaffolding.
+- **One VNode Shape:** `p`, `k`, `hooks` and `$` are all declared in the constructor. Writing a field that already exists is not a shape transition; adding one is, so declaring them up front keeps every vnode monomorphic no matter which setters are chained or in what order.
+- **The `$` Container:** One object rather than four fields, so "did any of these change" is a single identity check for the common node that chains none of them, and nothing is allocated for it. `specialsChanged` then compares facet by facet — comparing the container itself would always report a change, since its values are rebuilt per render.
 - **Immutability:** The reconciliation process relies on comparing VNode objects. Do not mutate VNodes after creation.
 - **Performance:** The default `shouldUpdate` function performs a shallow comparison on arrays and plain objects to avoid unnecessary reconciliations. Be mindful of the performance implications of any changes.
 - **Hot Path Allocation:** Reconciling one element walks its props, styling, attrs, dataset and hooks. Materialising a `[name, value]` pair per entry for each of those maps, on every update, is the largest single source of garbage in a render: 200 rows of five props over 400 updates grows the heap 77 MB that way versus 14 MB through `mapEach(map, visit, a, b, c)`, which never materialises entries. Visitors are hoisted to the factory closure and take their context through the `a`/`b`/`c` slots, so iterating allocates neither entries nor a closure. Keep new visitors hoisted.
@@ -67,9 +70,9 @@ This section applies when you are using `dodo` to build an application or UI.
 
 ### API Best Practices
 
-- **Use HTML Helpers:** Prefer using the simple HTML helper functions (`div`, `p`, `span`, etc.) for creating VNodes.
-- **Props Are Plain Properties:** The props object holds standard element properties only (`id`, `className`, `value`, etc.), written straight onto the element. Everything else is chained.
+- **Use HTML Helpers:** Prefer using the simple HTML helper functions (`div`, `p`, `span`, etc.) for creating VNodes. A helper takes children and nothing else; the void elements (`img`, `input`, `link`, `meta`, `area`, `track`, `embed`, `param`, `source`, `col`) take nothing at all.
 - **Chained Methods:** Each returns the VNode, so they compose in any order.
+    - **`.props({ ... })`**: Standard element properties (`id`, `value`, `checked`, etc.), written straight onto the element. Element nodes only.
     - **`.style({ ... })`**: Inline styles. Element nodes only.
     - **`.classes(...names)`**: Class names. Nested lists are flattened and blank names are skipped, so `.classes('card', isActive && 'active')` needs no filtering. Element nodes only.
     - **`.attrs({ ... })`**: Attributes, set with `setAttribute`. Element nodes only.
@@ -77,15 +80,17 @@ This section applies when you are using `dodo` to build an application or UI.
     - **`.key(id)`**: Adds a key for list reconciliation. Can be chained onto any VNode.
     - **`.on({ evt: fn })`**: Attaches event listeners or lifecycle hooks. Can be chained onto any VNode.
     - **`.opaque()`**: Marks an element node as opaque, meaning `dodo` will manage its props but not its children. Can only be chained onto element nodes (`h` or helpers).
-    - Each of `.style()`, `.classes()`, `.attrs()` and `.data()` replaces rather than merges, exactly like `.key()` and `.on()`: calling one twice leaves only the second value.
+    - Every setter replaces rather than merges: calling one twice leaves only the second value.
     ```javascript
-    dd.div({ id: 'card' }, 'content')
+    dd.div('content')
+      .props({ id: 'card' })
       .style({ 'background-color': 'white' })
       .classes('card', isActive && 'active')
       .data({ cardId: id })
       .key(id);
     ```
-- **Deprecated `$`-Prefixed Props:** `$styling`, `$classes`, `$attrs` and `$dataset` are the old form of the four setters above. They still work and warn once per prop name, but they will be removed — use the chained setters instead.
+- **Component Arguments Are Untouched:** `alias` and `special` components take whatever arguments they were given, so an object first argument is still an ordinary argument there (`todoItem({todo, isEditing})`, `scoped({styleSheets}, children)`). The element setters throw on those vnodes; `.key()` and `.on()` do not.
+- **No Props Argument, No `$` Props:** `h(tag, props, ...)` and the `$styling` / `$classes` / `$attrs` / `$dataset` props are gone, not deprecated. `h()` throws if handed a map where props used to sit. See `MIGRATION.md`.
 
 ### Syntax Clarifications
 
@@ -93,10 +98,11 @@ This section covers common points of confusion in the `dodo` API.
 
 #### 1. Passing Children
 
-Child VNodes are **always** passed as arguments to the helper function, *after* the optional props object. There is no `.children()` method.
+Child VNodes are **always** passed as arguments to the helper function, and they are the *only* arguments it takes. There is no `.children()` method, and no props argument.
 
--   **Correct:** `div({ id: 'parent' }, h1('Title'), p('Content'))`
--   **Incorrect:** `div({ id: 'parent' }).children(h1('Title'), ...)`
+-   **Correct:** `div(h1('Title'), p('Content')).props({ id: 'parent' })`
+-   **Incorrect:** `div({ id: 'parent' }, h1('Title'), p('Content'))`
+-   **Incorrect:** `div().props({ id: 'parent' }).children(h1('Title'), ...)`
 
 #### 2. Styling Properties
 
@@ -111,16 +117,15 @@ The `.on()` method is chained to the VNode created by a helper function. The chi
 
 -   **Correct:**
     ```javascript
-    div({ id: 'clickable' },
-        'Click me'
-    ).on({
-        click: () => console.log('Clicked!')
-    })
+    div('Click me')
+        .props({ id: 'clickable' })
+        .on({ click: () => console.log('Clicked!') })
     ```
 -   **Incorrect:**
     ```javascript
     // Don't pass children after .on()
-    div({ id: 'clickable' })
+    div()
+        .props({ id: 'clickable' })
         .on({ click: () => console.log('Clicked!') },
             'Click me'
         )

@@ -6,7 +6,7 @@ Dodo is a minimal, highly configurable virtual DOM library. It is not a framewor
 
 Everything in Dodo revolves around a few key functions:
 
-- **`h(tag, props, ...children)`**: The core function for creating a virtual element node.
+- **`h(tag, ...children)`**: The core function for creating a virtual element node. Properties, styling, classes, attributes and dataset entries are chained onto the result (`.props()`, `.style()`, `.classes()`, `.attrs()`, `.data()`).
 - **`alias(fn)`**: A wrapper for creating memoized, pure-function components.
 - **`special(config)`**: A powerful tool for creating components with lifecycle hooks (`attach`, `update`, `detach`), perfect for integrating with third-party libraries or browser APIs.
 

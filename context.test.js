@@ -27,8 +27,7 @@ describe('withContext / useContext', () => {
         {color: 'red'},
         h(
           'div',
-          null,
-          useContext(['color'], ({color}) => h('p', null, color)),
+          useContext(['color'], ({color}) => h('p', color)),
         ),
       ),
     ]);
@@ -42,8 +41,7 @@ describe('withContext / useContext', () => {
           {color},
           h(
             'div',
-            null,
-            useContext(['color'], data => h('p', null, data.color)),
+            useContext(['color'], data => h('p', data.color)),
           ),
         ),
       ]);
@@ -57,9 +55,9 @@ describe('withContext / useContext', () => {
   });
 
   test('ignores changes to keys the consumer did not ask for', () => {
-    const builder = mock(({wanted}) => h('p', null, wanted));
+    const builder = mock(({wanted}) => h('p', wanted));
     const render = data =>
-      reconcile(container, [withContext(data, h('div', null, useContext(['wanted'], builder)))]);
+      reconcile(container, [withContext(data, h('div', useContext(['wanted'], builder)))]);
 
     render({wanted: 'a', ignored: 1});
     expect(builder).toHaveBeenCalledTimes(1);
@@ -81,13 +79,11 @@ describe('withContext / useContext', () => {
         {theme: 'dark', locale: 'en'},
         h(
           'div',
-          null,
           withContext(
             {theme: 'light'},
             h(
               'section',
-              null,
-              useContext(['theme', 'locale'], d => h('p', null, `${d.theme}/${d.locale}`)),
+              useContext(['theme', 'locale'], d => h('p', `${d.theme}/${d.locale}`)),
             ),
           ),
         ),
@@ -103,7 +99,7 @@ describe('withContext / useContext', () => {
           {theme: 'dark', locale},
           withContext(
             {theme: 'light'},
-            useContext(['theme', 'locale'], d => h('p', null, `${d.theme}/${d.locale}`)),
+            useContext(['theme', 'locale'], d => h('p', `${d.theme}/${d.locale}`)),
           ),
         ),
       ]);
@@ -120,19 +116,19 @@ describe('withContext / useContext', () => {
     reconcile(container, [
       withContext(
         {a: 1},
-        useContext(['missing'], d => h('p', null, String(d.missing))),
+        useContext(['missing'], d => h('p', String(d.missing))),
       ),
     ]);
     expect(container.textContent).toBe('undefined');
   });
 
   test('works with no provider at all', () => {
-    reconcile(container, [useContext(['anything'], d => h('p', null, String(d.anything)))]);
+    reconcile(container, [useContext(['anything'], d => h('p', String(d.anything)))]);
     expect(container.textContent).toBe('undefined');
   });
 
   test('stops updating a consumer once it is detached', () => {
-    const builder = mock(d => h('p', null, d.n));
+    const builder = mock(d => h('p', d.n));
     reconcile(container, [withContext({n: '1'}, useContext(['n'], builder))]);
     expect(builder).toHaveBeenCalledTimes(1);
 
@@ -146,7 +142,7 @@ describe('withContext / useContext', () => {
 describe('shadow DOM encapsulation', () => {
   function mountShadowConsumer(host, keys) {
     const shadow = host.attachShadow({mode: 'open'});
-    reconcile(shadow, [useContext(keys, d => h('p', null, String(d.value)))]);
+    reconcile(shadow, [useContext(keys, d => h('p', String(d.value)))]);
     return shadow;
   }
 
@@ -175,7 +171,7 @@ describe('shadow DOM encapsulation', () => {
     reconcile(shadow, [
       withEncapsulatedContext(
         {value: 'inner'},
-        useContext(['value'], d => h('p', null, String(d.value))),
+        useContext(['value'], d => h('p', String(d.value))),
       ),
     ]);
     expect(shadow.textContent).toBe('inner');
@@ -187,7 +183,7 @@ describe('shadow DOM encapsulation', () => {
         {value: 'open'},
         withEncapsulatedContext(
           {value: 'encapsulated'},
-          useContext(['value'], d => h('p', null, String(d.value))),
+          useContext(['value'], d => h('p', String(d.value))),
         ),
       ),
     ]);
@@ -200,7 +196,7 @@ describe('shadow DOM encapsulation', () => {
         {value: 'encapsulated'},
         withContext(
           {value: 'open'},
-          useContext(['value'], d => h('p', null, String(d.value))),
+          useContext(['value'], d => h('p', String(d.value))),
         ),
       ),
     ]);
@@ -210,7 +206,7 @@ describe('shadow DOM encapsulation', () => {
 
 describe('readContext', () => {
   test('reads the visible context imperatively', () => {
-    reconcile(container, [withContext({a: 1, b: 2}, h('div', {id: 'leaf'}))]);
+    reconcile(container, [withContext({a: 1, b: 2}, h('div').props({id: 'leaf'}))]);
     const leaf = container.querySelector('#leaf');
     expect(readContext(leaf, ['a', 'b'])).toEqual({a: 1, b: 2});
     expect(readContext(leaf, ['a'])).toEqual({a: 1});

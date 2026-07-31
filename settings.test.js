@@ -61,7 +61,7 @@ describe('module factory pattern', () => {
     defaultDodo.reconcile(container, [
       withContext(
         {color: 'red'},
-        useContext(['color'], d => h('p', null, d.color)),
+        useContext(['color'], d => h('p', d.color)),
       ),
     ]);
 
@@ -81,7 +81,7 @@ describe('module factory pattern', () => {
     defaultDodo.reconcile(container, [
       contextEntry.withContext(
         {v: 'ok'},
-        contextEntry.useContext(['v'], d => h('p', null, d.v)),
+        contextEntry.useContext(['v'], d => h('p', d.v)),
       ),
     ]);
     expect(container.textContent).toBe('ok');
@@ -139,7 +139,7 @@ describe('pluggable scheduler', () => {
     });
 
     const c = cell('a');
-    defaultDodo.reconcile(container, [watch(c, v => h('p', null, v))]);
+    defaultDodo.reconcile(container, [watch(c, v => h('p', v))]);
     expect(container.textContent).toBe('a');
 
     c.setValue('b');
@@ -155,7 +155,7 @@ describe('pluggable scheduler', () => {
   test('a synchronous scheduler makes watch render eagerly', () => {
     const {watch} = reactiveFactory({dodo: defaultDodo, schedule: fn => fn()});
     const c = cell(1);
-    defaultDodo.reconcile(container, [watch(c, v => h('p', null, String(v)))]);
+    defaultDodo.reconcile(container, [watch(c, v => h('p', String(v)))]);
     c.setValue(2);
     expect(container.textContent).toBe('2');
   });
@@ -163,7 +163,7 @@ describe('pluggable scheduler', () => {
 
 describe('pluggable error view', () => {
   test('watch falls back to the settings renderError', () => {
-    const renderError = mock(err => h('b', null, `custom: ${err.message}`));
+    const renderError = mock(err => h('b', `custom: ${err.message}`));
     const {watch} = reactiveFactory({dodo: defaultDodo, renderError});
     const failing = {
       onDirty: () => () => {},
@@ -175,7 +175,7 @@ describe('pluggable error view', () => {
     const consoleError = console.error;
     console.error = () => {};
     try {
-      defaultDodo.reconcile(container, [watch(failing, () => h('p', null, 'never'))]);
+      defaultDodo.reconcile(container, [watch(failing, () => h('p', 'never'))]);
     } finally {
       console.error = consoleError;
     }

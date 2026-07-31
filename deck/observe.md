@@ -66,7 +66,7 @@ a frame — so the honest answer is `PENDING`, paired with `watch`'s
 ```javascript
 import {withElementSize, withVisibility} from '@3sln/dodo/observe';
 
-withElementSize(size => canvas({width: size.width, height: size.height}))
+withElementSize(size => canvas().props({width: size.width, height: size.height}))
 
 withVisibility(visible => (visible ? chart() : skeleton()), {
   root: '.scroller',

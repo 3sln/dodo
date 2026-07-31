@@ -174,14 +174,14 @@ describe('computedAnimationDuration', () => {
 });
 
 describe('withPresence', () => {
-  const render = (present, config, builder = phase => h('p', null, phase)) =>
+  const render = (present, config, builder = phase => h('p', phase)) =>
     reconcile(container, [withPresence(present, builder, config)]);
 
   test('animates in on first render and reports its phases', async () => {
     const phases = [];
     render(true, {spawn: {classes: ['enter'], duration: 0}}, phase => {
       phases.push(phase);
-      return h('p', null, phase);
+      return h('p', phase);
     });
 
     expect(container.textContent).toBe(SPAWNING);
@@ -260,7 +260,7 @@ describe('withPresence', () => {
     expect(container.textContent).toBe(SPAWNED);
 
     // Same presence, new builder: no new transition, so the phase holds.
-    render(true, {spawn}, phase => h('p', null, `${phase}!`));
+    render(true, {spawn}, phase => h('p', `${phase}!`));
     expect(container.textContent).toBe(`${SPAWNED}!`);
   });
 
@@ -272,7 +272,7 @@ describe('withPresence', () => {
   test('aborts and tears down its subtree when detached', async () => {
     const detached = mock();
     render(true, {spawn: {classes: ['enter'], duration: 10_000}}, phase =>
-      h('p', null, phase).on({$detach: detached}),
+      h('p', phase).on({$detach: detached}),
     );
     const node = container.firstChild;
     expect(node.classList.contains('enter')).toBe(true);
@@ -293,10 +293,10 @@ describe('withPresence', () => {
     container.append(first, second);
 
     reconcile(first, [
-      withPresence(true, p => h('p', null, p), {spawn: {classes: ['a'], duration: 10_000}}),
+      withPresence(true, p => h('p', p), {spawn: {classes: ['a'], duration: 10_000}}),
     ]);
     reconcile(second, [
-      withPresence(true, p => h('p', null, p), {spawn: {classes: ['b'], duration: 10_000}}),
+      withPresence(true, p => h('p', p), {spawn: {classes: ['b'], duration: 10_000}}),
     ]);
 
     expect(first.firstChild.classList.contains('a')).toBe(true);
@@ -372,7 +372,7 @@ describe('phase styles as resting state', () => {
 });
 
 describe('withPresence styling and phase reflection', () => {
-  const render = (present, config, builder = phase => h('p', null, phase)) =>
+  const render = (present, config, builder = phase => h('p', phase)) =>
     reconcile(container, [withPresence(present, builder, config)]);
 
   test('mirrors the phase onto the node for CSS to hook', async () => {
