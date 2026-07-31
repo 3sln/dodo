@@ -264,6 +264,46 @@ describe('children flattening', () => {
   });
 });
 
+describe('object children', () => {
+  test('should reject an object with no text form, wherever it appears', () => {
+    // The slot props used to occupy...
+    expect(() => reconcile(container, h('div', {id: 'root'}))).toThrow('invalid child');
+    // ...and any other slot, at any depth.
+    expect(() => reconcile(container, h('div', h('p', 'a'), {id: 'root'}))).toThrow(
+      'invalid child',
+    );
+    expect(() => reconcile(container, h('div', ['a', [{id: 'root'}]]))).toThrow('invalid child');
+    // Not just plain objects: anything with nothing better to say than
+    // Object.prototype, including an object that cannot be asked at all.
+    class Bag {}
+    expect(() => reconcile(container, h('div', new Bag()))).toThrow('invalid child');
+    expect(() => reconcile(container, h('div', Object.create(null)))).toThrow('invalid child');
+  });
+
+  test('should name the replacement in the message', () => {
+    expect(() => reconcile(container, h('div', {id: 'root'}))).toThrow('.props({...})');
+  });
+
+  test('should leave the target reusable after a failed reconciliation', () => {
+    expect(() => reconcile(container, h('div', {id: 'root'}))).toThrow('invalid child');
+    // The failure must not leave the target half claimed, or the next attempt
+    // reports a null dereference instead of whatever actually went wrong.
+    reconcile(container, h('div', 'recovered').props({id: 'root'}));
+    expect(container.id).toBe('root');
+    expect(container.textContent).toBe('recovered');
+  });
+
+  test('should render an object that can describe itself as text', () => {
+    class Money {
+      toString() {
+        return '$1.00';
+      }
+    }
+    reconcile(container, h('div', new Money(), ' and ', new Date(0).getFullYear()));
+    expect(container.textContent).toBe('$1.00 and 1970');
+  });
+});
+
 describe('keyed reconciliation', () => {
   test('should support keys that collide with Object.prototype members', () => {
     const build = text =>
@@ -511,15 +551,13 @@ describe('chained styling, classes, attrs and dataset', () => {
   });
 
   test('should reject a non-map value for the map taking setters', () => {
-    // A fresh target each time: the throw leaves the previous one half claimed.
-    const target = () => document.createElement('div');
-    expect(() => reconcile(target(), h('div').style('color: red'))).toThrow(
+    expect(() => reconcile(container, h('div').style('color: red'))).toThrow(
       'invalid value for .style(), expected a map',
     );
-    expect(() => reconcile(target(), h('div').attrs(['role', 'main']))).toThrow(
+    expect(() => reconcile(container, h('div').attrs(['role', 'main']))).toThrow(
       'invalid value for .attrs(), expected a map',
     );
-    expect(() => reconcile(target(), h('div').data('foo'))).toThrow(
+    expect(() => reconcile(container, h('div').data('foo'))).toThrow(
       'invalid value for .data(), expected a map',
     );
   });
@@ -560,17 +598,6 @@ describe('chained props', () => {
     expect(() => special({})('x').props({id: 'a'})).toThrow(
       '.props() can only be used on element nodes (h).',
     );
-  });
-
-  test('should reject a map in the first child slot, where props used to go', () => {
-    expect(() => h('div', {id: 'root'})).toThrow(
-      'h() takes children after the tag; chain .props({...}) for properties.',
-    );
-    // A custom instance rejects whatever it considers a map.
-    const custom = dodo({isMap: x => x instanceof Map});
-    expect(() => custom.h('div', new Map([['id', 'root']]))).toThrow('h() takes children');
-    // ...and nothing else. A plain object is an ordinary child there.
-    expect(() => custom.h('div', {id: 'root'})).not.toThrow();
   });
 });
 

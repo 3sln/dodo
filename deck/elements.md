@@ -73,6 +73,16 @@ Because each map is compared in its own right rather than by identity, an object
 literal rebuilt on every render — `.props({id})`, `.style({color})` — compares
 equal when its contents have not changed, and costs no reconciliation pass.
 
+## Children
+
+Children are values: VNodes, strings, numbers, and lists of them at any depth.
+`null`, `undefined` and `false` render nothing, while `0` and `''` are real text.
+
+An object with no text form of its own is refused rather than rendered as
+`[object Object]` — most often it is a map that belongs in `.props()` or
+`.style()` and ended up in the child list. An object that can describe itself,
+such as a `Date`, still renders.
+
 > [!NOTE]
 > Props used to be an optional first argument, and styling, classes, attributes
 > and dataset used to be `$`-prefixed props. Both forms are gone; see

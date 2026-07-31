@@ -19,6 +19,16 @@ function sameTagName(nodeName, tag) {
   return typeof tag === 'string' && nodeName.toLowerCase() === tag.toLowerCase();
 }
 
+// Whether an object can describe itself as text. `Object.prototype.toString`
+// answers "[object Object]" for anything that has not said otherwise, and a
+// null-prototyped object cannot answer at all.
+function hasTextForm(value) {
+  return (
+    typeof value[Symbol.toPrimitive] === 'function' ||
+    (typeof value.toString === 'function' && value.toString !== Object.prototype.toString)
+  );
+}
+
 // Props, styling, classes, attributes and dataset belong to an element, not to
 // an alias's or a special's argument list.
 function assertElementNode(vnode, method) {
@@ -341,19 +351,26 @@ export default userSettings => {
   // Blank children are filtered out before they reach here, but a custom
   // `flattenSeq` may not do that filtering, so never assume `.toString()` exists.
   function toText(value) {
-    return isBlank(value) ? '' : String(value);
+    if (isBlank(value)) return '';
+    // Vnodes and seqs are dealt with before anything reaches here, so an object
+    // in the text position is a mistake — most often a map that belongs in
+    // `.props()` or `.style()` and landed in the child list instead. Rendering
+    // it would put the string "[object Object]" on the page, which is never
+    // what was meant, so it is refused wherever it turns up rather than only in
+    // the slot props used to occupy. An object that can describe itself as text
+    // (a `Date`, a `URL`, anything with its own `toString`) still renders.
+    if (typeof value === 'object' && !hasTextForm(value)) {
+      throw new Error(
+        'invalid child: an object with no text form. If it is a map of element properties, chain .props({...}) instead.',
+      );
+    }
+    return String(value);
   }
 
   // Everything after the tag is a child. Properties are chained on with
   // `.props()`, which is also the only way to reach an element's property when
   // its name collides with one of the setters.
   function h(tag, ...children) {
-    // A map in the first child slot is where props used to go, and a map is
-    // never a meaningful child — it would render as `[object Object]`. The
-    // check costs what reading the old props slot cost, so it stays.
-    if (isMap(children[0])) {
-      throw new Error('h() takes children after the tag; chain .props({...}) for properties.');
-    }
     return new VNode(ELEMENT_NODE, convertTagName(tag), children);
   }
 
@@ -952,7 +969,12 @@ export default userSettings => {
     }
 
     if (vdom instanceof VNode) {
-      if (state) {
+      // `state.vdom` rather than `state`: a target whose first reconciliation
+      // threw part way through is left holding a state with no vdom in it, and
+      // it has nothing attached that a retry needs to preserve. Claiming it
+      // afresh restarts cleanly, where reading through the missing vdom would
+      // report a null dereference on top of whatever actually went wrong.
+      if (state?.vdom) {
         // The tag has to match as well as the type: swapping the alias function
         // or the special descriptor is a different component, and reusing the
         // state would skip the old one's detach and the new one's attach.

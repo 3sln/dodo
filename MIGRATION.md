@@ -21,9 +21,12 @@ div('content')
   .data({cardId: id})
 ```
 
-Nothing is deprecated — the old forms are gone. `h()` throws if it finds a map
-where props used to sit, so a missed call site fails loudly rather than
-rendering `[object Object]`.
+Nothing is deprecated — the old forms are gone. An object that has no text form
+of its own is refused as a child rather than rendered as `[object Object]`, so a
+props map left behind in a child list fails loudly wherever it sits:
+
+    invalid child: an object with no text form. If it is a map of element
+    properties, chain .props({...}) instead.
 
 ### What moved where
 
