@@ -203,6 +203,19 @@ function nodePrototypeFor(doc, settingsWindow) {
   return view.Node?.prototype ?? view.Element?.prototype;
 }
 
+// `moveBefore` is a `ParentNode` method, so it is on `Element` and
+// `DocumentFragment` and never on `Node` — looking for it beside `insertBefore`
+// finds nothing in every browser that implements it. Which prototype depends on
+// what is being reconciled into: an element, or a shadow root or fragment.
+function parentMoveBeforeFor(target, doc, settingsWindow) {
+  const view = settingsWindow ?? doc?.defaultView ?? globalThis;
+  const proto =
+    target.nodeType === 1 /* ELEMENT_NODE */
+      ? view.Element?.prototype
+      : view.DocumentFragment?.prototype;
+  return typeof proto?.moveBefore === 'function' ? proto.moveBefore : null;
+}
+
 function installFocusTrackingForDocument(doc) {
   const focusWithinSet = new Set();
   // The set is rebuilt on every focusin rather than accumulated. `focusin`
@@ -921,9 +934,8 @@ export default userSettings => {
     if (newDomChildren.length === 0) return;
 
     const doc = target.ownerDocument;
-    const nodeProto = nodePrototypeFor(doc, userSettings?.window);
-    const insertBefore = nodeProto.insertBefore;
-    const moveBefore = typeof nodeProto.moveBefore === 'function' ? nodeProto.moveBefore : null;
+    const insertBefore = nodePrototypeFor(doc, userSettings?.window).insertBefore;
+    const moveBefore = parentMoveBeforeFor(target, doc, userSettings?.window);
     const connected = target.isConnected;
 
     let anchorIndex = -1;

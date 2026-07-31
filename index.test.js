@@ -746,6 +746,70 @@ describe('connected reordering', () => {
   });
 });
 
+describe('relocating children', () => {
+  let mounted;
+  const ids = () => [...mounted.firstChild.childNodes].map(n => n.id).join('');
+
+  beforeEach(() => {
+    mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+  });
+
+  test('should relocate with moveBefore where the browser has it', () => {
+    // moveBefore is a ParentNode method: Element and DocumentFragment, never
+    // Node. Looking for it beside insertBefore finds nothing, which is how it
+    // went unused in every browser that implements it.
+    expect(typeof window.Node.prototype.moveBefore).toBe('undefined');
+    const native = window.Element.prototype.moveBefore;
+    expect(typeof native).toBe('function');
+
+    const moved = mock();
+    window.Element.prototype.moveBefore = function (...args) {
+      moved(...args);
+      return native.apply(this, args);
+    };
+
+    const list = order =>
+      h(
+        'div',
+        order.map(k => h('input').props({id: k}).key(k)),
+      );
+    reconcile(mounted, [list(['a', 'b', 'c'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    reconcile(mounted, [list(['b', 'a', 'c'])]);
+    expect(ids()).toBe('bac');
+    // Relocated rather than detached and reinserted, so focus never went.
+    expect(moved).toHaveBeenCalled();
+    expect(document.activeElement).toBe(focused);
+  });
+
+  test('should keep focus by anchoring where moveBefore is missing', () => {
+    // A realm without moveBefore, which is every browser before Chrome 133 and
+    // the reason placeChildrenAroundAnchor exists. Nothing else reaches it now.
+    const legacy = dodo({
+      window: {
+        Node: {prototype: {insertBefore: window.Node.prototype.insertBefore}},
+        Element: {prototype: {}},
+      },
+    });
+    const list = order =>
+      legacy.h(
+        'div',
+        order.map(k => legacy.h('input').props({id: k}).key(k)),
+      );
+
+    legacy.reconcile(mounted, [list(['a', 'b', 'c', 'd'])]);
+    const focused = mounted.querySelector('#b');
+    focused.focus();
+
+    legacy.reconcile(mounted, [list(['c', 'd', 'b', 'a'])]);
+    expect(ids()).toBe('cdba');
+    expect(document.activeElement).toBe(focused);
+  });
+});
+
 describe('reordering around a focused child', () => {
   let mounted;
   const list = order =>
