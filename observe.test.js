@@ -1,5 +1,4 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import reactiveFactory, {PENDING} from './src/reactive.js';
 import observeFactory, {
@@ -8,6 +7,9 @@ import observeFactory, {
   elementVisibility,
   nearestLaidOutElement,
 } from './src/observe.js';
+
+let window;
+let document;
 
 const {h, reconcile, flush, clear} = dodo;
 const {withElementSize, withVisibility} = observeFactory({
@@ -64,8 +66,7 @@ function installObserverStubs(view) {
 }
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   installObserverStubs(window);
   clear();
   container = document.createElement('div');
@@ -109,13 +110,14 @@ describe('elementSize', () => {
   let laidOut;
   beforeEach(() => {
     laidOut = document.createElement('div');
-    laidOut.style.display = 'block';
+    laidOut.style.cssText = 'display:block;width:120px;height:40px';
     container.appendChild(laidOut);
   });
 
   test('measures directly when nothing has been observed yet', () => {
     const size = elementSize(laidOut);
-    expect(size.getValue()).toEqual({width: 0, height: 0});
+    // The element's real border box, read straight off the layout.
+    expect(size.getValue()).toEqual({width: 120, height: 40});
     // Never pending: a size is always knowable.
     expect(size.getValue()).not.toBe(PENDING);
   });
@@ -252,11 +254,12 @@ describe('elementVisibility', () => {
 describe('withElementSize', () => {
   test('renders the builder with the observed size', () => {
     const laidOut = document.createElement('div');
-    laidOut.style.display = 'block';
+    laidOut.style.cssText = 'display:block;width:120px;height:40px';
     container.appendChild(laidOut);
 
     reconcile(laidOut, [withElementSize(size => h('p', `${size.width}x${size.height}`))]);
-    expect(laidOut.textContent).toBe('0x0');
+    // Measured before the observer has said anything.
+    expect(laidOut.textContent).toBe('120x40');
 
     resizeObservers[0].emit({width: 200, height: 100});
     flush();
@@ -298,15 +301,17 @@ describe('withElementSize', () => {
   });
 
   test('does not re-render when the size did not change', () => {
+    container.style.cssText = 'display:block;width:80px;height:20px';
     const builder = mock(size => h('p', String(size.width)));
     reconcile(container, [withElementSize(builder)]);
     expect(builder).toHaveBeenCalledTimes(1);
 
-    resizeObservers[0].emit({width: 0, height: 0});
+    // The size it was already measured at, so there is nothing to re-render for.
+    resizeObservers[0].emit({width: 80, height: 20});
     flush();
     expect(builder).toHaveBeenCalledTimes(1);
 
-    resizeObservers[0].emit({width: 10, height: 0});
+    resizeObservers[0].emit({width: 90, height: 20});
     flush();
     expect(builder).toHaveBeenCalledTimes(2);
   });

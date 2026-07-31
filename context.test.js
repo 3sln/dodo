@@ -1,8 +1,10 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import contextFactory from './src/context.js';
 import reactiveFactory from './src/reactive.js';
+
+let window;
+let document;
 
 const {h, reconcile, flush, clear} = dodo;
 const {withContext, withEncapsulatedContext, useContext, readContext} = contextFactory({
@@ -13,8 +15,7 @@ const {withContext, withEncapsulatedContext, useContext, readContext} = contextF
 let container;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   clear();
   container = document.createElement('div');
   document.body.appendChild(container);

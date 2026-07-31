@@ -1,16 +1,17 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as defaultDodo from './index.js';
 import {dodo as dodoFactory, h} from './index.js';
 import reactiveFactory, {cell} from './src/reactive.js';
 import contextFactory from './src/context.js';
 import {settings} from './src/settings.js';
 
+let window;
+let document;
+
 let container;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   defaultDodo.clear();
   container = document.createElement('div');
   document.body.appendChild(container);

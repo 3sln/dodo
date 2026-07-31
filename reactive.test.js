@@ -1,5 +1,4 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import reactiveFactory, {
   PENDING,
@@ -16,14 +15,16 @@ import reactiveFactory, {
   toObservable,
 } from './src/reactive.js';
 
+let window;
+let document;
+
 const {h, flush, clear} = dodo;
 const {watch} = reactiveFactory({dodo});
 
 let container;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   clear();
   container = document.createElement('div');
   document.body.appendChild(container);

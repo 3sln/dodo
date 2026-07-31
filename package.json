@@ -39,14 +39,19 @@
   ],
   "devDependencies": {
     "@types/bun": "latest",
-    "happy-dom": "^18.0.1",
+    "@web/test-runner": "^1.0.0",
+    "@web/test-runner-playwright": "^1.0.0",
+    "chai": "^6.2.2",
+    "playwright": "^1.62.1",
     "prettier": "^3.6.2"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "test": "bun test",
-    "format": "prettier -w \"**/*.js\""
+    "test": "web-test-runner",
+    "format": "prettier -w \"**/*.js\"",
+    "test:watch": "web-test-runner --watch",
+    "test:coverage": "web-test-runner --coverage"
   }
 }

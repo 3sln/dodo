@@ -1,6 +1,8 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import {dodo, h, reconcile, settings as defaultSettings} from './index.js';
+
+let window;
+let document;
 
 /**
  * A persistent map with nothing plain about it: the entries live in a private
@@ -54,8 +56,7 @@ test('the fixture is genuinely foreign', () => {
 
 let container;
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   container = document.createElement('div');
   document.body.appendChild(container);
 });

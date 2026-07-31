@@ -1,12 +1,13 @@
-import {test, expect, describe, beforeEach, afterEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, afterEach, mock, createRealm} from './test-helpers.js';
 import {h, alias, special, reconcile, schedule, flush, clear, dodo} from './index.js';
+
+let window;
+let document;
 
 let container;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   clear();
   container = document.createElement('div');
 });

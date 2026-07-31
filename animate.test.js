@@ -1,5 +1,4 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import reactiveFactory from './src/reactive.js';
 import animateFactory, {
@@ -10,6 +9,9 @@ import animateFactory, {
   computedAnimationDuration,
   runAnimation,
 } from './src/animate.js';
+
+let window;
+let document;
 
 const {h, reconcile, flush, clear} = dodo;
 
@@ -28,8 +30,7 @@ const {withPresence} = animateFactory({
 let container;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   clear();
   container = document.createElement('div');
   document.body.appendChild(container);

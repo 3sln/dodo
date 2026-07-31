@@ -16,6 +16,9 @@ This document outlines guidelines for LLM agents interacting with the `dodo` pro
 - **Adhere to Conventions:** Before making changes, analyze existing code, tests, and documentation to understand and follow established patterns.
 - **Mimic Style:** Match the existing coding style, including formatting, naming, and architectural patterns (vertical growth, explicit blocks).
 - **Test Your Changes:** All modifications to the library must be accompanied by tests.
+- **Tests Run In A Real Browser:** `bun run test` drives the suite through `@web/test-runner` in headless Chromium (`bun run test:coverage` for coverage). Half of what dodo does is only meaningful against a real DOM — focus survival during reordering, `moveBefore`, shadow roots with adopted stylesheets, resize and intersection observers, `Element.animate`, transition durations read off computed style — and an emulator either fakes those or lacks them, so a test passing against one is worth very little. It cost real bugs to learn: the DOM emulator reported every element as 0x0, and `moveBefore` was looked for in a place no browser puts it. Do not reintroduce an emulator.
+- **A Realm Per Test:** `createRealm()` in `test-helpers.js` hands out an iframe — a real document with real layout, its own `Node.prototype` and somewhere to put stubs. Test files shadow `window` and `document` with module-scoped bindings assigned from it, which is what makes a browser suite as isolated as a per-test emulator was. Realms are torn down after every test automatically.
+- **The Assertion Vocabulary Is Deliberate:** `test-helpers.js` exposes nine matchers over chai. It exists so the move to a browser could be read as a change of environment rather than a rewrite of every assertion in the project. Add a matcher when a test needs one; do not convert the suite to a different dialect for its own sake.
 
 ---
 

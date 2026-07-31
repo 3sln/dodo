@@ -1,4 +1,4 @@
-import {test, expect, describe, mock} from 'bun:test';
+import {test, expect, describe, mock} from './test-helpers.js';
 import schedulerFactory from './src/scheduler.js';
 
 // A window whose clock and animation frames are driven by hand, so the frame

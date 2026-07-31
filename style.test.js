@@ -1,7 +1,9 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import styleFactory, {css} from './src/style.js';
+
+let window;
+let document;
 
 const {h, reconcile, clear} = dodo;
 const {scoped, reconcileShadow, detachShadow} = styleFactory({dodo});
@@ -10,8 +12,7 @@ let container;
 let sheetFor;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   globalThis.CSSStyleSheet = window.CSSStyleSheet;
   clear();
   container = document.createElement('div');
