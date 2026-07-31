@@ -13,10 +13,10 @@ const benchmarkApp = dd.alias(props => {
     if (!result) return '';
     if (result.running) return 'Running...';
     if (result.error) return `Error: ${result.error}`;
-    if (result.mean) {
+    if (result.median !== undefined) {
       return dd.div(
-        dd.strong(`${result.mean.toFixed(3)} ms`),
-        dd.small(`(±${result.stdDev.toFixed(3)})`).style({display: 'block', color: '#666'}),
+        dd.strong(`${result.median.toFixed(2)} ms`),
+        dd.small(`best ${result.best.toFixed(2)}`).style({display: 'block', color: '#666'}),
       );
     }
     return '';
