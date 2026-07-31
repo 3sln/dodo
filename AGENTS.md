@@ -25,7 +25,8 @@ This section applies when you are modifying the `dodo` library itself.
 
 ### Core Concepts
 - **Factory Pattern:** The core logic resides in `src/vdom.js`. Be aware of which functions are inside the factory closure (and depend on settings) and which are static helpers outside of it.
-- **`$`-Prefixed Props:** Special props that are intercepted by the `reconcile` function for specific behaviors (like `$classes` or `$styling`) are prefixed with a `$` to avoid collision with standard element properties.
+- **Chained Specials:** Styling, classes, attributes and dataset entries are chained onto the vnode (`.style()`, `.classes()`, `.attrs()`, `.data()`) rather than passed as props, and are held in a single `$` object on the `VNode`. One container rather than four fields: a vnode is allocated per element per render, so every optional field is another shape for the engine to track, and it makes "did any of these change" a single identity check for the majority of nodes that chain none of them. The `$`-prefixed props they replace (`$styling`, `$classes`, `$attrs`, `$dataset`) are deprecated — still handled in `applyProp`, warning once per prop name per instance, and to be deleted wholesale. Keep that path isolated so the deletion stays a clean subtraction, and do not mix the two forms for the same facet on one element.
+- **Comparing Specials:** `vnodeChanged` compares args, hooks and the specials facet by facet. Comparing the `$` container itself would be worse than useless — its values are rebuilt per render, so it would always report a change; comparing `styling` against `styling` lets `shouldUpdate`'s shallow map compare do its job, and a `.style()` map with unchanged contents costs no second pass at all.
 - **Immutability:** The reconciliation process relies on comparing VNode objects. Do not mutate VNodes after creation.
 - **Performance:** The default `shouldUpdate` function performs a shallow comparison on arrays and plain objects to avoid unnecessary reconciliations. Be mindful of the performance implications of any changes.
 - **Hot Path Allocation:** Reconciling one element walks its props, styling, attrs, dataset and hooks. Materialising a `[name, value]` pair per entry for each of those maps, on every update, is the largest single source of garbage in a render: 200 rows of five props over 400 updates grows the heap 77 MB that way versus 14 MB through `mapEach(map, visit, a, b, c)`, which never materialises entries. Visitors are hoisted to the factory closure and take their context through the `a`/`b`/`c` slots, so iterating allocates neither entries nor a closure. Keep new visitors hoisted.
@@ -67,13 +68,24 @@ This section applies when you are using `dodo` to build an application or UI.
 ### API Best Practices
 
 - **Use HTML Helpers:** Prefer using the simple HTML helper functions (`div`, `p`, `span`, etc.) for creating VNodes.
-- **`$`-Prefixed Props:** When you need `dodo` to perform special handling for properties, use the `$` prefix. For all other standard element properties (`id`, `className`, `value`, etc.), pass them directly.
-    - `dd.div({ $classes: ['a', 'b'] })`
-    - `dd.p({ $styling: { color: 'blue' } })`
-- **Chained Methods:**
+- **Props Are Plain Properties:** The props object holds standard element properties only (`id`, `className`, `value`, etc.), written straight onto the element. Everything else is chained.
+- **Chained Methods:** Each returns the VNode, so they compose in any order.
+    - **`.style({ ... })`**: Inline styles. Element nodes only.
+    - **`.classes(...names)`**: Class names. Nested lists are flattened and blank names are skipped, so `.classes('card', isActive && 'active')` needs no filtering. Element nodes only.
+    - **`.attrs({ ... })`**: Attributes, set with `setAttribute`. Element nodes only.
+    - **`.data({ ... })`**: `dataset` entries. Element nodes only.
     - **`.key(id)`**: Adds a key for list reconciliation. Can be chained onto any VNode.
     - **`.on({ evt: fn })`**: Attaches event listeners or lifecycle hooks. Can be chained onto any VNode.
     - **`.opaque()`**: Marks an element node as opaque, meaning `dodo` will manage its props but not its children. Can only be chained onto element nodes (`h` or helpers).
+    - Each of `.style()`, `.classes()`, `.attrs()` and `.data()` replaces rather than merges, exactly like `.key()` and `.on()`: calling one twice leaves only the second value.
+    ```javascript
+    dd.div({ id: 'card' }, 'content')
+      .style({ 'background-color': 'white' })
+      .classes('card', isActive && 'active')
+      .data({ cardId: id })
+      .key(id);
+    ```
+- **Deprecated `$`-Prefixed Props:** `$styling`, `$classes`, `$attrs` and `$dataset` are the old form of the four setters above. They still work and warn once per prop name, but they will be removed — use the chained setters instead.
 
 ### Syntax Clarifications
 
@@ -88,10 +100,10 @@ Child VNodes are **always** passed as arguments to the helper function, *after* 
 
 #### 2. Styling Properties
 
-When using the `$styling` prop, all CSS property names **must** be snake-cased, as they are in standard CSS. CamelCase will not work.
+When using `.style()`, all CSS property names **must** be kebab-cased, as they are in standard CSS. CamelCase will not work.
 
--   **Correct:** `div({ $styling: { 'margin-bottom': '1em', 'font-size': '16px' } })`
--   **Incorrect:** `div({ $styling: { marginBottom: '1em', fontSize: '16px' } })`
+-   **Correct:** `div().style({ 'margin-bottom': '1em', 'font-size': '16px' })`
+-   **Incorrect:** `div().style({ marginBottom: '1em', fontSize: '16px' })`
 
 #### 3. Chaining Event Handlers
 

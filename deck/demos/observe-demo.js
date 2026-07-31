@@ -2,18 +2,12 @@ import * as d from '@3sln/dodo';
 import {withElementSize, withVisibility} from '@3sln/dodo/observe';
 
 const box = (label, ...children) =>
-  d.div(
-    {
-      $styling: {
-        border: '1px solid #ccc',
-        'border-radius': '4px',
-        padding: '0.75em',
-        'margin-bottom': '0.75em',
-      },
-    },
-    d.strong(label),
-    ...children,
-  );
+  d.div(d.strong(label), ...children).style({
+    border: '1px solid #ccc',
+    'border-radius': '4px',
+    padding: '0.75em',
+    'margin-bottom': '0.75em',
+  });
 
 // The size reported is the container's, not the wrapper's: the component's own
 // node is display:contents, so it measures the nearest laid out ancestor.
@@ -27,28 +21,24 @@ const measured = () =>
 const tracked = () =>
   box(
     'Visibility',
-    d.div(
-      {
-        $styling: {
-          height: '8em',
-          overflow: 'auto',
-          border: '1px solid #ccc',
-          'border-radius': '4px',
-          padding: '0.5em',
-        },
-        $classes: ['observe-scroller'],
-      },
-      d.div({$styling: {height: '10em'}}, d.p('Scroll down…')),
-      withVisibility(
-        visible =>
-          d.p(
-            {$styling: {color: visible ? 'green' : '#999'}},
-            visible ? 'on screen' : 'off screen',
-          ),
-        {root: '.observe-scroller', placeholder: () => d.p({$styling: {color: '#999'}}, '…')},
-      ),
-      d.div({$styling: {height: '10em'}}),
-    ),
+    d
+      .div(
+        d.div(d.p('Scroll down…')).style({height: '10em'}),
+        withVisibility(
+          visible =>
+            d.p(visible ? 'on screen' : 'off screen').style({color: visible ? 'green' : '#999'}),
+          {root: '.observe-scroller', placeholder: () => d.p('…').style({color: '#999'})},
+        ),
+        d.div().style({height: '10em'}),
+      )
+      .style({
+        height: '8em',
+        overflow: 'auto',
+        border: '1px solid #ccc',
+        'border-radius': '4px',
+        padding: '0.5em',
+      })
+      .classes('observe-scroller'),
   );
 
 export default driver => {
@@ -57,11 +47,7 @@ export default driver => {
 
     const sub = width$.subscribe(width => {
       d.reconcile(container, [
-        d.div(
-          {$styling: {width: `${Number(width) || 60}%`, 'min-width': '12em'}},
-          measured(),
-          tracked(),
-        ),
+        d.div(measured(), tracked()).style({width: `${Number(width) || 60}%`, 'min-width': '12em'}),
       ]);
     });
 

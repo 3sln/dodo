@@ -27,14 +27,27 @@ import { reconcile, h1, p, div } from '@3sln/dodo';
 const container = document.getElementById('root');
 
 // Use helper functions like h1(), p(), etc. for standard elements.
-// The props object is optional.
+// The props object is optional, and holds plain element properties.
 const myVdom = div({ id: 'app' },
   h1('Hello, dodo!'),
-  p('This is a paragraph.')
+  p('This is a paragraph.').classes('lede')
 );
 
 // Reconcile the virtual DOM with the real DOM.
 reconcile(container, [myVdom]);
+```
+
+Everything that is not a plain element property is chained onto the vnode, and
+every setter returns the vnode:
+
+```javascript
+div({ id: 'card' }, 'content')
+  .style({ 'background-color': 'white', padding: '1em' })
+  .classes('card', isActive && 'active')
+  .attrs({ role: 'group' })
+  .data({ cardId: id })
+  .key(id)
+  .on({ click: onClick });
 ```
 
 ## Optional modules

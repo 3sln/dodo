@@ -3,7 +3,7 @@ import * as d from '@3sln/dodo';
 export default driver => {
   const {button, div, p, h, alias} = d;
 
-  const myAlias = alias(text => p({$styling: {color: 'blue'}}, `(This is an alias) ${text}`));
+  const myAlias = alias(text => p(`(This is an alias) ${text}`).style({color: 'blue'}));
 
   driver.panel('Demo', (container, signal) => {
     // 1. Create the DOM elements we want to target manually.
@@ -21,24 +21,12 @@ export default driver => {
     spanTarget.style.display = 'block';
 
     const controls = div(
-      {
-        $styling: {
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '0.5em',
-          paddingBottom: '1em',
-          borderBottom: '1px solid #eee',
-        },
-      },
       button('reconcile(div, [p]) (Into)').on({
         click: () => d.reconcile(divTarget, [p('Rendered into the div.')]),
       }),
       button("reconcile(div, h('div')) (Onto)").on({
         click: () =>
-          d.reconcile(
-            divTarget,
-            div({$styling: {backgroundColor: '#aeffae'}}, 'Rendered onto the div.'),
-          ),
+          d.reconcile(divTarget, div('Rendered onto the div.').style({backgroundColor: '#aeffae'})),
       }),
       button('reconcile(div, myAlias) (Onto)').on({
         click: () => d.reconcile(divTarget, myAlias('Rendered onto the div.')),
@@ -61,7 +49,13 @@ export default driver => {
           d.reconcile(spanTarget, []);
         },
       }),
-    );
+    ).style({
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '0.5em',
+      paddingBottom: '1em',
+      borderBottom: '1px solid #eee',
+    });
 
     // 2. Create opaque placeholder VNodes and use $attach to append the manual elements.
     const demoArea = div(
@@ -69,7 +63,7 @@ export default driver => {
       div()
         .opaque()
         .on({$attach: el => el.appendChild(divTarget)}),
-      p({$styling: {marginTop: '1.5em'}}, 'Target SPAN:'),
+      p('Target SPAN:').style({marginTop: '1.5em'}),
       div()
         .opaque()
         .on({$attach: el => el.appendChild(spanTarget)}),

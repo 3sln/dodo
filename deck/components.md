@@ -19,12 +19,12 @@ While a plain JavaScript function that returns a VNode can work, `alias` provide
 import * as d from '@3sln/dodo';
 
 // A plain function - will re-run every time its parent renders.
-const plainGreeting = (name, color) => 
-  d.h1({ $styling: { color } }, `Hello, ${name}!`);
+const plainGreeting = (name, color) =>
+  d.h1(`Hello, ${name}!`).style({ color });
 
 // An alias - will only re-render if `name` or `color` changes.
 const aliasedGreeting = d.alias((name, color) =>
-  d.h1({ $styling: { color } }, `Hello, ${name}!`)
+  d.h1(`Hello, ${name}!`).style({ color })
 );
 
 // Because it has a stable node, you can do this:

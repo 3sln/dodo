@@ -14,36 +14,40 @@ const todoItem = dd.alias(props => {
     }
   };
 
-  return dd
-    .li(
-      {
-        $classes: [todo.completed && 'completed', isEditing && 'editing'].filter(Boolean),
-      },
-      dd.div(
-        {$classes: ['view']},
+  return (
+    dd
+      .li(
         dd
-          .input({$classes: ['toggle'], type: 'checkbox', checked: todo.completed})
-          .on({change: () => store.toggleTodo(todo)}),
-        dd.label(todo.title).on({dblclick: () => store.startEditing(todo)}),
-        dd.button({$classes: ['destroy']}).on({click: () => store.removeTodo(todo)}),
-      ),
-      isEditing &&
-        dd
-          .input({
-            $classes: ['edit'],
-            value: todo.title,
-          })
-          .on({
-            blur: finishEdit,
-            keyup: cancelEdit,
-            keydown: e => {
-              if (e.key === ENTER_KEY) finishEdit(e);
-            },
-            // Use $attach hook to focus the element when it's created
-            $attach: el => el.focus(),
-          }),
-    )
-    .key(todo.id);
+          .div(
+            dd
+              .input({type: 'checkbox', checked: todo.completed})
+              .classes('toggle')
+              .on({change: () => store.toggleTodo(todo)}),
+            dd.label(todo.title).on({dblclick: () => store.startEditing(todo)}),
+            dd
+              .button()
+              .classes('destroy')
+              .on({click: () => store.removeTodo(todo)}),
+          )
+          .classes('view'),
+        isEditing &&
+          dd
+            .input({value: todo.title})
+            .classes('edit')
+            .on({
+              blur: finishEdit,
+              keyup: cancelEdit,
+              keydown: e => {
+                if (e.key === ENTER_KEY) finishEdit(e);
+              },
+              // Use $attach hook to focus the element when it's created
+              $attach: el => el.focus(),
+            }),
+      )
+      // Blank names are skipped, so the conditionals need no filtering.
+      .classes(todo.completed && 'completed', isEditing && 'editing')
+      .key(todo.id)
+  );
 });
 
 const app = dd.alias(props => {

@@ -19,6 +19,23 @@ function sameTagName(nodeName, tag) {
   return typeof tag === 'string' && nodeName.toLowerCase() === tag.toLowerCase();
 }
 
+// Styling, classes, attributes and dataset all live in one `$` object rather
+// than in a field of their own each. A vnode is allocated per element per
+// render, so every optional field is another shape for the engine to track; one
+// container also makes "did any of these change" a single identity check for
+// the common node that has none of them.
+function setSpecial(vnode, method, name, value) {
+  if (vnode.type !== ELEMENT_NODE && vnode.type !== OPAQUE_NODE) {
+    throw new Error(`${method} can only be used on element nodes (h).`);
+  }
+  // All four keys are written up front so that every `$` object shares a shape.
+  if (!vnode.$) {
+    vnode.$ = {styling: undefined, classes: undefined, attrs: undefined, dataset: undefined};
+  }
+  vnode.$[name] = value;
+  return vnode;
+}
+
 class VNode {
   constructor(type, tag, args) {
     this.type = type;
@@ -34,6 +51,24 @@ class VNode {
   on(hooks) {
     this.hooks = hooks;
     return this;
+  }
+
+  // The setters below replace rather than merge, like `.key()` and `.on()` do:
+  // calling one twice leaves only the second value.
+  style(styling) {
+    return setSpecial(this, '.style()', 'styling', styling);
+  }
+
+  classes(...classes) {
+    return setSpecial(this, '.classes()', 'classes', classes);
+  }
+
+  attrs(attrs) {
+    return setSpecial(this, '.attrs()', 'attrs', attrs);
+  }
+
+  data(dataset) {
+    return setSpecial(this, '.data()', 'dataset', dataset);
   }
 
   opaque() {
@@ -188,6 +223,19 @@ export default userSettings => {
   const passiveKey = userSettings?.passiveKey ?? 'passive';
 
   const EMPTY_MAP = newMap({});
+
+  // The `$`-prefixed props predate the chained setters and are on their way
+  // out. Warned once per prop name per instance rather than once per element: a
+  // render loop would otherwise turn the notice into a flood.
+  const warnedDeprecatedProps = new Set();
+
+  function warnDeprecatedProp(propName, replacement) {
+    if (warnedDeprecatedProps.has(propName)) return;
+    warnedDeprecatedProps.add(propName);
+    console.warn(
+      `The '${propName}' prop is deprecated and will be removed. Chain ${replacement} onto the vnode instead.`,
+    );
+  }
 
   function toIterator(iterableOrIterator) {
     if (iterableOrIterator == null) return [][Symbol.iterator]();
@@ -365,6 +413,49 @@ export default userSettings => {
     }
   }
 
+  // The chained counterpart to the `$`-prefixed props: one pass over the four
+  // facets a vnode can carry. Reconciling them from the vnode rather than from
+  // the props map means a `.style()` map rebuilt with the same contents is
+  // compared as a map, not by identity, so it does not force a second pass.
+  function reconcileElementSpecials(target, newSpecials, oldSpecials) {
+    if (!newSpecials && !oldSpecials) return;
+
+    const newStyling = newSpecials?.styling;
+    const oldStyling = oldSpecials?.styling;
+    if (newStyling !== undefined || oldStyling !== undefined) {
+      if (newStyling !== undefined && !isMap(newStyling)) {
+        throw new Error('invalid value for .style(), expected a map');
+      }
+      reconcileElementStyling(target, oldStyling ?? EMPTY_MAP, newStyling ?? EMPTY_MAP);
+    }
+
+    // `.classes()` collects its rest arguments, so this side is always an array
+    // — nested seqs within it are flattened by `reconcileElementClasses`.
+    const newClasses = newSpecials?.classes;
+    const oldClasses = oldSpecials?.classes;
+    if (newClasses !== undefined || oldClasses !== undefined) {
+      reconcileElementClasses(target, oldClasses ?? [], newClasses ?? []);
+    }
+
+    const newAttrs = newSpecials?.attrs;
+    const oldAttrs = oldSpecials?.attrs;
+    if (newAttrs !== undefined || oldAttrs !== undefined) {
+      if (newAttrs !== undefined && !isMap(newAttrs)) {
+        throw new Error('invalid value for .attrs(), expected a map');
+      }
+      reconcileElementAttributes(target, oldAttrs ?? EMPTY_MAP, newAttrs ?? EMPTY_MAP);
+    }
+
+    const newDataset = newSpecials?.dataset;
+    const oldDataset = oldSpecials?.dataset;
+    if (newDataset !== undefined || oldDataset !== undefined) {
+      if (newDataset !== undefined && !isMap(newDataset)) {
+        throw new Error('invalid value for .data(), expected a map');
+      }
+      reconcileElementDataset(target, oldDataset ?? EMPTY_MAP, newDataset ?? EMPTY_MAP);
+    }
+  }
+
   function setElementProp(target, nodeState, propName, newValue) {
     if (UNSAFE_PROP_NAMES.has(propName)) {
       console.error(`Refusing to assign unsafe prop name '${propName}' to a DOM node.`);
@@ -393,21 +484,25 @@ export default userSettings => {
 
     switch (propName) {
       case '$styling': {
+        warnDeprecatedProp('$styling', '.style()');
         if (!isMap(newValue)) throw new Error('invalid value for styling prop');
         reconcileElementStyling(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
         break;
       }
       case '$classes': {
+        warnDeprecatedProp('$classes', '.classes()');
         if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
         reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
         break;
       }
       case '$attrs': {
+        warnDeprecatedProp('$attrs', '.attrs()');
         if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
         reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
         break;
       }
       case '$dataset': {
+        warnDeprecatedProp('$dataset', '.data()');
         if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
         reconcileElementDataset(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
         break;
@@ -531,11 +626,15 @@ export default userSettings => {
     switch (newVdom.type) {
       case ELEMENT_NODE: {
         reconcileElementProps(target, args[0]);
+        // After the props, so that an element still carrying a deprecated
+        // `$`-prefixed prop for the same facet does not win over the chain.
+        reconcileElementSpecials(target, newVdom.$, oldVdom?.$);
         reconcileElementChildren(target, flattenVNodeChildren(args, 1));
         break;
       }
       case OPAQUE_NODE: {
         reconcileElementProps(target, args[0]);
+        reconcileElementSpecials(target, newVdom.$, oldVdom?.$);
         break;
       }
       case ALIAS_NODE: {
@@ -624,6 +723,7 @@ export default userSettings => {
 
     if (vdom.type === ELEMENT_NODE || vdom.type === OPAQUE_NODE) {
       reconcileElementProps(target, EMPTY_MAP);
+      reconcileElementSpecials(target, undefined, vdom.$);
     }
 
     if (vdom.type === ELEMENT_NODE || vdom.type === ALIAS_NODE) {
@@ -642,15 +742,36 @@ export default userSettings => {
     }
   }
 
-  // A reused node only needs a second pass when its arguments or its hooks
-  // changed; comparing hooks too means a node whose props are stable but whose
-  // listeners are freshly bound each render still gets those listeners swapped.
+  // Chained specials are compared facet by facet rather than as one object, so
+  // that a `.style()` map rebuilt with the same contents compares equal instead
+  // of differing by identity.
+  function specialsChanged(oldSpecials, newSpecials) {
+    // Both undefined for any node that chains nothing, which is most of them.
+    if (oldSpecials === newSpecials) return false;
+    if (!oldSpecials || !newSpecials) return true;
+    return (
+      shouldUpdate(oldSpecials.styling, newSpecials.styling) ||
+      shouldUpdate(oldSpecials.classes, newSpecials.classes) ||
+      shouldUpdate(oldSpecials.attrs, newSpecials.attrs) ||
+      shouldUpdate(oldSpecials.dataset, newSpecials.dataset)
+    );
+  }
+
+  // A reused node only needs a second pass when its arguments, its hooks or its
+  // chained specials changed; comparing hooks too means a node whose props are
+  // stable but whose listeners are freshly bound each render still gets those
+  // listeners swapped.
+  function vnodeChanged(oldVdom, newVdom) {
+    return (
+      shouldUpdate(oldVdom.args, newVdom.args) ||
+      shouldUpdate(oldVdom.hooks, newVdom.hooks) ||
+      specialsChanged(oldVdom.$, newVdom.$)
+    );
+  }
+
   function claimExistingNode(domNode, newVdom) {
     const state = domNode[NODE_STATE];
-    if (
-      shouldUpdate(state.vdom.args, newVdom.args) ||
-      shouldUpdate(state.vdom.hooks, newVdom.hooks)
-    ) {
+    if (vnodeChanged(state.vdom, newVdom)) {
       state.newVdom = newVdom;
     }
     return domNode;
@@ -877,10 +998,7 @@ export default userSettings => {
         // or the special descriptor is a different component, and reusing the
         // state would skip the old one's detach and the new one's attach.
         if (state.vdom.type === vdom.type && state.vdom.tag === vdom.tag) {
-          if (
-            shouldUpdate(state.vdom.args, vdom.args) ||
-            shouldUpdate(state.vdom.hooks, vdom.hooks)
-          ) {
+          if (vnodeChanged(state.vdom, vdom)) {
             state.newVdom = vdom;
             reconcileNode(target);
           }

@@ -14,27 +14,28 @@ export default driver => {
 
     d.reconcile(container, [
       d.style(pageStyles),
-      d.div(
-        {$classes: ['style-demo']},
-        d.p('Unscoped: the page rule reaches this one.'),
-        // Rebuilt per render, but `css` is memoised per call site, so the sheet
-        // is only actually rebuilt when the interpolated colour changes.
-        watch(color, value =>
-          scoped(
-            {
-              styleSheets: [
-                css`
-                  p {
-                    color: ${value};
-                    font-weight: bold;
-                  }
-                `,
-              ],
-            },
-            d.p('Scoped: the page rule cannot reach in, and this rule cannot leak out.'),
+      d
+        .div(
+          d.p('Unscoped: the page rule reaches this one.'),
+          // Rebuilt per render, but `css` is memoised per call site, so the
+          // sheet is only actually rebuilt when the interpolated colour changes.
+          watch(color, value =>
+            scoped(
+              {
+                styleSheets: [
+                  css`
+                    p {
+                      color: ${value};
+                      font-weight: bold;
+                    }
+                  `,
+                ],
+              },
+              d.p('Scoped: the page rule cannot reach in, and this rule cannot leak out.'),
+            ),
           ),
-        ),
-      ),
+        )
+        .classes('style-demo'),
     ]);
 
     signal.addEventListener('abort', () => {

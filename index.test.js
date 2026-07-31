@@ -1,4 +1,4 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
+import {test, expect, describe, beforeEach, afterEach, mock} from 'bun:test';
 import {Window} from 'happy-dom';
 import {h, alias, special, reconcile, schedule, flush, clear, dodo} from './index.js';
 
@@ -31,9 +31,7 @@ describe('reconcile function', () => {
   });
 
   test('should reconcile an OPAQUE_NODE onto a matching DOM element', () => {
-    const vdom = h('div', {
-      $classes: ['opaque-container'],
-    }).opaque();
+    const vdom = h('div').classes('opaque-container').opaque();
     reconcile(container, vdom);
     expect(container.className).toEqual('opaque-container');
   });
@@ -339,13 +337,13 @@ describe('prop safety', () => {
   });
 
   test('should skip empty and nullish class names', () => {
-    reconcile(container, h('div', {$classes: ['a', '', null, false, 'b']}));
+    reconcile(container, h('div').classes('a', '', null, false, 'b'));
     expect(container.className).toEqual('a b');
   });
 
   test('should remove classes that are no longer present', () => {
-    reconcile(container, h('div', {$classes: ['a', 'b']}));
-    reconcile(container, h('div', {$classes: ['b', 'c']}));
+    reconcile(container, h('div').classes('a', 'b'));
+    reconcile(container, h('div').classes('b', 'c'));
     expect(container.classList.contains('a')).toBe(false);
     expect(container.classList.contains('b')).toBe(true);
     expect(container.classList.contains('c')).toBe(true);
@@ -450,17 +448,160 @@ describe('scheduler', () => {
   });
 });
 
+describe('chained styling, classes, attrs and dataset', () => {
+  test('should apply every facet chained onto a child vnode', () => {
+    reconcile(container, [
+      h('p', {id: 'p'}, 'hi')
+        .style({color: 'red'})
+        .classes('a', 'b')
+        .attrs({role: 'note'})
+        .data({foo: 'bar'})
+        .key('k'),
+    ]);
+    const p = container.firstChild;
+    expect(p.style.color).toBe('red');
+    expect(p.className).toBe('a b');
+    expect(p.getAttribute('role')).toBe('note');
+    expect(p.dataset.foo).toBe('bar');
+    expect(p.textContent).toBe('hi');
+  });
+
+  test('should update a facet on a reused child node', () => {
+    const render = color => reconcile(container, [h('p', {id: 'p'}).style({color})]);
+    render('red');
+    const p = container.firstChild;
+    render('blue');
+    expect(container.firstChild).toBe(p);
+    expect(p.style.color).toBe('blue');
+  });
+
+  test('should flatten and skip blanks in chained classes', () => {
+    reconcile(container, h('div').classes('a', ['b', null, ['c']], false, ''));
+    expect(container.className).toBe('a b c');
+  });
+
+  test('should replace rather than merge when a setter is called twice', () => {
+    reconcile(container, h('div').classes('a').classes('b').style({color: 'red'}).style({}));
+    expect(container.className).toBe('b');
+    expect(container.style.color).toBe('');
+  });
+
+  test('should remove everything chained when the node is cleaned up', () => {
+    reconcile(
+      container,
+      h('div').style({color: 'red'}).classes('a').attrs({role: 'main'}).data({foo: 'bar'}),
+    );
+    reconcile(container, null);
+    expect(container.style.color).toBe('');
+    expect(container.className).toBe('');
+    expect(container.getAttribute('role')).toBe(null);
+    expect(container.dataset.foo).toBeUndefined();
+  });
+
+  test('should not re-render when a chained map is rebuilt with the same contents', () => {
+    // Props and hooks are held stable so that the chained map is the only thing
+    // the reconciler could notice a change in.
+    const props = {id: 'p'};
+    const hooks = {$update: mock()};
+    const render = color => reconcile(container, [h('p', props).style({color}).on(hooks)]);
+
+    render('red');
+    render('red');
+    expect(hooks.$update).toHaveBeenCalledTimes(1);
+
+    render('blue');
+    expect(hooks.$update).toHaveBeenCalledTimes(2);
+  });
+
+  test('should reject chaining onto alias and special nodes', () => {
+    const myAlias = alias(text => h('p', null, text));
+    const mySpecial = special({});
+    expect(() => myAlias('x').style({color: 'red'})).toThrow(
+      '.style() can only be used on element nodes (h).',
+    );
+    expect(() => myAlias('x').classes('a')).toThrow(
+      '.classes() can only be used on element nodes (h).',
+    );
+    expect(() => mySpecial('x').attrs({role: 'main'})).toThrow(
+      '.attrs() can only be used on element nodes (h).',
+    );
+    expect(() => mySpecial('x').data({foo: 'bar'})).toThrow(
+      '.data() can only be used on element nodes (h).',
+    );
+  });
+
+  test('should reject a non-map value for the map taking setters', () => {
+    // A fresh target each time: the throw leaves the previous one half claimed.
+    const target = () => document.createElement('div');
+    expect(() => reconcile(target(), h('div').style('color: red'))).toThrow(
+      'invalid value for .style(), expected a map',
+    );
+    expect(() => reconcile(target(), h('div').attrs(['role', 'main']))).toThrow(
+      'invalid value for .attrs(), expected a map',
+    );
+    expect(() => reconcile(target(), h('div').data('foo'))).toThrow(
+      'invalid value for .data(), expected a map',
+    );
+  });
+});
+
+describe('deprecated $-prefixed props', () => {
+  let consoleWarn;
+  beforeEach(() => {
+    consoleWarn = console.warn;
+    console.warn = () => {};
+  });
+  afterEach(() => {
+    console.warn = consoleWarn;
+  });
+
+  test('should still apply and remove every facet', () => {
+    reconcile(
+      container,
+      h('div', {
+        $styling: {color: 'red'},
+        $attrs: {role: 'main'},
+        $dataset: {foo: 'a'},
+        $classes: ['c1'],
+      }),
+    );
+    expect(container.style.color).toBe('red');
+    expect(container.getAttribute('role')).toBe('main');
+    expect(container.dataset.foo).toBe('a');
+    expect(container.className).toBe('c1');
+
+    reconcile(container, h('div'));
+    expect(container.style.color).toBe('');
+    expect(container.getAttribute('role')).toBe(null);
+    expect(container.dataset.foo).toBeUndefined();
+    expect(container.className).toBe('');
+  });
+
+  test('should warn once per prop name', () => {
+    const warn = mock();
+    console.warn = warn;
+    // A fresh instance, because the notice is only given once per prop name.
+    const fresh = dodo();
+    fresh.reconcile(container, fresh.h('div', {$dataset: {foo: 'a'}}));
+    fresh.reconcile(container, fresh.h('div', {$dataset: {foo: 'b'}}));
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('.data()');
+
+    fresh.reconcile(container, fresh.h('div', {$classes: ['a']}));
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[1][0]).toContain('.classes()');
+  });
+});
+
 describe('special props, namespaces and custom settings', () => {
   test('styling, attrs, dataset add and remove', () => {
     reconcile(
       container,
-      h('div', {
-        $styling: {color: 'red', 'font-size': '12px'},
-        $attrs: {role: 'main', 'aria-label': 'x'},
-        $dataset: {foo: 'a', bar: 'b'},
-        $classes: ['c1', 'c2'],
-        id: 'root',
-      }),
+      h('div', {id: 'root'})
+        .style({color: 'red', 'font-size': '12px'})
+        .attrs({role: 'main', 'aria-label': 'x'})
+        .data({foo: 'a', bar: 'b'})
+        .classes('c1', 'c2'),
     );
     expect(container.style.color).toBe('red');
     expect(container.getAttribute('role')).toBe('main');
@@ -469,13 +610,11 @@ describe('special props, namespaces and custom settings', () => {
 
     reconcile(
       container,
-      h('div', {
-        $styling: {color: 'blue'},
-        $attrs: {role: 'nav'},
-        $dataset: {foo: 'z'},
-        $classes: ['c2'],
-        id: 'root',
-      }),
+      h('div', {id: 'root'})
+        .style({color: 'blue'})
+        .attrs({role: 'nav'})
+        .data({foo: 'z'})
+        .classes('c2'),
     );
     expect(container.style.color).toBe('blue');
     expect(container.style.getPropertyValue('font-size')).toBe('');
@@ -528,11 +667,11 @@ describe('special props, namespaces and custom settings', () => {
       mapPut: (m, k, v) => new Map(m).set(k, v),
       mapMerge: (...ms) => new Map(ms.flatMap(m => [...m])),
     });
-    const props = new Map([
-      ['id', 'custom'],
-      ['$styling', new Map([['color', 'green']])],
-    ]);
-    custom.reconcile(container, custom.h('div', props, custom.h('p', null, 'hi')));
+    const props = new Map([['id', 'custom']]);
+    custom.reconcile(
+      container,
+      custom.h('div', props, custom.h('p', null, 'hi')).style(new Map([['color', 'green']])),
+    );
     expect(container.id).toBe('custom');
     expect(container.style.color).toBe('green');
     expect(container.textContent).toBe('hi');

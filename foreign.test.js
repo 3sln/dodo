@@ -80,16 +80,10 @@ for (const [label, userSettings] of Object.entries(variants)) {
       d.reconcile(
         container,
         d
-          .h(
-            'div',
-            PMap.from({
-              id: 'foreign',
-              $styling: PMap.from({color: 'red', 'font-size': '12px'}),
-              $attrs: PMap.from({role: 'main', 'aria-label': 'x'}),
-              $dataset: PMap.from({foo: 'a', bar: 'b'}),
-            }),
-            d.h('p', null, 'hi'),
-          )
+          .h('div', PMap.from({id: 'foreign'}), d.h('p', null, 'hi'))
+          .style(PMap.from({color: 'red', 'font-size': '12px'}))
+          .attrs(PMap.from({role: 'main', 'aria-label': 'x'}))
+          .data(PMap.from({foo: 'a', bar: 'b'}))
           .on(PMap.from({click: clicked})),
       );
 
@@ -107,22 +101,14 @@ for (const [label, userSettings] of Object.entries(variants)) {
       const d = dodo(userSettings);
       const clicked = mock();
       const full = d
-        .h(
-          'div',
-          PMap.from({
-            id: 'a',
-            $styling: PMap.from({color: 'red', 'font-size': '12px'}),
-            $attrs: PMap.from({role: 'main', 'aria-label': 'x'}),
-            $dataset: PMap.from({foo: 'a', bar: 'b'}),
-          }),
-        )
+        .h('div', PMap.from({id: 'a'}))
+        .style(PMap.from({color: 'red', 'font-size': '12px'}))
+        .attrs(PMap.from({role: 'main', 'aria-label': 'x'}))
+        .data(PMap.from({foo: 'a', bar: 'b'}))
         .on(PMap.from({click: clicked}));
 
       d.reconcile(container, full);
-      d.reconcile(
-        container,
-        d.h('div', PMap.from({id: 'b', $styling: PMap.from({color: 'blue'})})),
-      );
+      d.reconcile(container, d.h('div', PMap.from({id: 'b'})).style(PMap.from({color: 'blue'})));
 
       expect(container.id).toBe('b');
       expect(container.style.color).toBe('blue');
@@ -134,6 +120,36 @@ for (const [label, userSettings] of Object.entries(variants)) {
 
       container.dispatchEvent(new window.MouseEvent('click'));
       expect(clicked).not.toHaveBeenCalled();
+    });
+
+    test('still accepts the deprecated $-prefixed props', () => {
+      const consoleWarn = console.warn;
+      console.warn = () => {};
+      try {
+        const d = dodo(userSettings);
+        d.reconcile(
+          container,
+          d.h(
+            'div',
+            PMap.from({
+              id: 'a',
+              $styling: PMap.from({color: 'red'}),
+              $attrs: PMap.from({role: 'main'}),
+              $dataset: PMap.from({foo: 'a'}),
+            }),
+          ),
+        );
+        expect(container.style.color).toBe('red');
+        expect(container.getAttribute('role')).toBe('main');
+        expect(container.dataset.foo).toBe('a');
+
+        d.reconcile(container, d.h('div', PMap.from({id: 'a'})));
+        expect(container.style.color).toBe('');
+        expect(container.getAttribute('role')).toBe(null);
+        expect(container.dataset.foo).toBeUndefined();
+      } finally {
+        console.warn = consoleWarn;
+      }
     });
 
     test('exposes the resolved mapEach on settings', () => {

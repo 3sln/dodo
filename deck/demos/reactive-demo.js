@@ -14,9 +14,10 @@ export default driver => {
     const total = derive([price, qty], (p, n) => (Number(p) || 0) * n);
 
     const button = (label, onClick) =>
-      d.button({$styling: {'margin-right': '0.5em', padding: '0.25em 0.75em'}}, label).on({
-        click: onClick,
-      });
+      d
+        .button(label)
+        .style({'margin-right': '0.5em', padding: '0.25em 0.75em'})
+        .on({click: onClick});
 
     d.reconcile(container, [
       d.div(
@@ -25,9 +26,7 @@ export default driver => {
           button('+', () => qty.update(n => n + 1)),
           watch(qty, n => d.span(`quantity: ${n}`)),
         ),
-        watch(total, value =>
-          d.p({$styling: {'font-weight': 'bold'}}, `total: ${value.toFixed(2)}`),
-        ),
+        watch(total, value => d.p(`total: ${value.toFixed(2)}`).style({'font-weight': 'bold'})),
       ),
     ]);
 
