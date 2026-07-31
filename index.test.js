@@ -819,3 +819,209 @@ describe('reordering around a focused child', () => {
     expect(document.activeElement).toBe(focused);
   });
 });
+
+describe('namespaces', () => {
+  test('should give a math element the MathML namespace', () => {
+    reconcile(container, [h('math', h('mi', 'x'))]);
+    const math = container.firstChild;
+    expect(math.namespaceURI).toBe('http://www.w3.org/1998/Math/MathML');
+    expect(math.firstChild.namespaceURI).toBe('http://www.w3.org/1998/Math/MathML');
+  });
+
+  test('should remove an attribute prop that was dropped from a namespaced element', () => {
+    const svg = (...props) => h('svg', h('circle').props(props[0])).props({width: '10'});
+    reconcile(container, [svg({cx: '1', r: '2'})]);
+    const circle = container.firstChild.firstChild;
+    expect(circle.getAttribute('cx')).toBe('1');
+
+    reconcile(container, [svg({r: '2'})]);
+    expect(circle.getAttribute('cx')).toBe(null);
+    expect(circle.getAttribute('r')).toBe('2');
+  });
+
+  test('should remove an attribute prop set explicitly to undefined', () => {
+    reconcile(container, [h('svg', h('circle').props({cx: '1'}))]);
+    const circle = container.firstChild.firstChild;
+    reconcile(container, [h('svg', h('circle').props({cx: undefined}))]);
+    expect(circle.getAttribute('cx')).toBe(null);
+  });
+});
+
+describe('listener descriptors', () => {
+  test('should attach a listener given as a descriptor object', () => {
+    const seen = [];
+    const listener = e => seen.push(e.eventPhase);
+    reconcile(container, [
+      h('div', h('button', 'go')).on({click: {listener, capture: true, passive: true}}),
+    ]);
+    container
+      .querySelector('button')
+      .dispatchEvent(new window.MouseEvent('click', {bubbles: true}));
+    // Capturing, so the outer div sees the event on its way down.
+    expect(seen).toEqual([1 /* CAPTURING_PHASE */]);
+  });
+
+  test('should remove a capturing listener when it is dropped', () => {
+    const listener = mock();
+    const render = withListener =>
+      reconcile(container, [
+        h('div', h('button', 'go')).on(withListener ? {click: {listener, capture: true}} : {}),
+      ]);
+
+    render(true);
+    render(false);
+    container
+      .querySelector('button')
+      .dispatchEvent(new window.MouseEvent('click', {bubbles: true}));
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('alias return shapes', () => {
+  test('should render a sequence returned by an alias', () => {
+    const many = alias(() => [h('p', 'one'), h('p', 'two')]);
+    reconcile(container, [many()]);
+    expect(container.textContent).toBe('onetwo');
+
+    const one = alias(() => h('p', 'only'));
+    reconcile(container, [one()]);
+    expect(container.textContent).toBe('only');
+  });
+});
+
+describe('errors in user callbacks are contained', () => {
+  let consoleError;
+  beforeEach(() => {
+    consoleError = console.error;
+    console.error = mock();
+  });
+  afterEach(() => {
+    console.error = consoleError;
+  });
+
+  test('should keep reconciling when a lifecycle hook throws', () => {
+    const boom = () => {
+      throw new Error('hook failed');
+    };
+    reconcile(container, [
+      h('p', 'first').on({$attach: boom, $update: boom, $detach: boom}),
+      h('p', 'second'),
+    ]);
+    expect(container.textContent).toBe('firstsecond');
+
+    reconcile(container, null);
+    expect(container.textContent).toBe('');
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  test("should keep reconciling when a special's update throws", () => {
+    const boom = special({
+      update() {
+        throw new Error('update failed');
+      },
+    });
+    reconcile(container, [boom('a'), h('p', 'sibling')]);
+    expect(container.textContent).toBe('sibling');
+    expect(console.error).toHaveBeenCalled();
+  });
+
+  test('should clean up a node that was created but never reconciled', () => {
+    const boom = alias(() => {
+      throw new Error('builder failed');
+    });
+    expect(() => reconcile(container, [boom(), h('p', 'never reached')])).toThrow('builder failed');
+
+    // The sibling was created and placed but never reconciled; tearing the
+    // target down must not trip over its half-built state.
+    reconcile(container, null);
+    expect(container.childNodes.length).toBe(0);
+  });
+});
+
+describe('reconciliation re-entrancy', () => {
+  test('should refuse to reconcile a target that is already being reconciled', () => {
+    const reenter = alias(() => {
+      reconcile(container, [h('p', 'again')]);
+      return h('p', 'inner');
+    });
+    expect(() => reconcile(container, [reenter(), h('span', 'sibling')])).toThrow(
+      'already working on a reconciliation against that same target',
+    );
+  });
+});
+
+describe('duplicate keys', () => {
+  test('should reuse same-keyed siblings in order', () => {
+    const list = labels =>
+      h(
+        'ul',
+        labels.map(l => h('li', l).key('same')),
+      );
+    reconcile(container, [list(['a', 'b'])]);
+    const [first, second] = container.firstChild.childNodes;
+
+    reconcile(container, [list(['c', 'd'])]);
+    expect(container.firstChild.childNodes[0]).toBe(first);
+    expect(container.firstChild.childNodes[1]).toBe(second);
+    expect(container.textContent).toBe('cd');
+  });
+});
+
+describe('custom seq settings', () => {
+  test('should accept a seqIter that returns a bare iterator', () => {
+    const custom = dodo({
+      seqIter: s => {
+        let i = 0;
+        return {next: () => (i < s.length ? {value: s[i++], done: false} : {done: true})};
+      },
+    });
+    custom.reconcile(container, ['a', ['b', 'c']]);
+    expect(container.textContent).toBe('abc');
+  });
+});
+
+describe('chaining onto the wrong node type', () => {
+  test('should reject .opaque() on alias and special nodes', () => {
+    expect(() => alias(() => h('p', 'x'))().opaque()).toThrow(
+      '.opaque() can only be used on element nodes (h).',
+    );
+    expect(() => special({})().opaque()).toThrow(
+      '.opaque() can only be used on element nodes (h).',
+    );
+  });
+});
+
+describe('cleanup of unmanaged nodes', () => {
+  test('should clear a target dodo never claimed', () => {
+    container.innerHTML = '<span>not ours</span>';
+    expect(() => reconcile(container, null)).not.toThrow();
+    expect(container.childNodes.length).toBe(0);
+  });
+
+  test('should contain an $attach that throws when reconciling onto a target', () => {
+    const consoleError = console.error;
+    console.error = mock();
+    try {
+      reconcile(
+        container,
+        h('div', 'body').on({
+          $attach: () => {
+            throw new Error('attach failed');
+          },
+        }),
+      );
+      expect(container.textContent).toBe('body');
+      expect(console.error).toHaveBeenCalled();
+    } finally {
+      console.error = consoleError;
+    }
+  });
+});
+
+describe('custom iteration settings', () => {
+  test('should accept a seqIter that returns a single value', () => {
+    const custom = dodo({isSeq: x => Array.isArray(x), seqIter: s => s[0]});
+    custom.reconcile(container, [['only']]);
+    expect(container.textContent).toBe('only');
+  });
+});
