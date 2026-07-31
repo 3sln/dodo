@@ -44,58 +44,44 @@ library gets identical rows.
 `flushSync` React decides for itself when to do the work — a benchmark that stops
 timing before the work happens measures nothing.
 
-Two dodo columns: `dodo` uses `alias` for rows, `dodo (no alias)` uses a plain
-function. An alias is backed by a real `<udom-alias>` element, so the aliased
-version puts 1,000 extra elements in the document that no other library creates
-— but it is also the only one of the six that can decline to re-render a row.
-
 ## What the numbers say
 
 Chrome 141, one machine, so treat the absolute figures as local. The shape holds.
 
 **dodo is the fastest library here at not doing work.** Re-rendering 1,000
-unchanged rows costs it nothing measurable, against 2.2–5.5ms for everything
-else; selecting a single row costs 1.7ms against 2.5–6.0ms. That is what the
-per-facet comparison of props and chained maps buys, and it is the case a real
-application hits constantly — a re-render prompted by a change somewhere else.
+unchanged rows costs it nothing measurable, against 2.5–6.1ms for everything
+else; selecting a single row costs 1.9ms against 2.3–6.2ms. That is what
+comparing props, chained maps and alias arguments by contents rather than by
+identity buys, and it is the case a real application hits constantly — a
+re-render prompted by a change somewhere else.
 
-**It is the slowest at doing work in bulk.** Creating, replacing and appending
-1,000 rows run 10–35% behind, and two operations are much worse than that.
+**Swapping two rows costs 2 DOM mutations**, down from 997 before
+`placeChildren` learned to close in from both ends. dodo now runs that case in
+about the same time as snabbdom and preact. React still performs 997 mutations
+for the same swap, for what that is worth.
 
-**Swapping two rows costs 997 DOM mutations where preact, snabbdom and superfine
-spend 2.** `placeChildren` walks the desired order against the current siblings
-and relocates anything that does not match, so moving one row past another
-cascades into moving everything between them. The mutation count is
-deterministic — it is not a measurement artefact. React does the same thing, for
-what that is worth.
+**It is still the slowest at bulk work.** Creating, replacing and appending
+1,000 rows run 15–40% behind, and clearing 1,000 rows takes three times as long
+as anyone else for exactly the same 1,999 mutations — so that one is not the
+DOM. It is the teardown walk: every node has its props restored, its listeners
+removed and its state deleted.
 
-**Clearing 1,000 rows takes three times as long as anyone else** for exactly the
-same 1,999 mutations, so the cost is not in the DOM. It is the teardown walk:
-every node has its props restored, its listeners removed and its state deleted.
+**Allocation is high**, roughly 250 kB of garbage per update of 200 rows against
+preact's 87 kB. The aliased variant allocates about 1.75x what the plain one
+does, which is the wrapper vnodes and their DOM nodes.
 
-**Allocation is high.** 256 kB of garbage per update of 200 rows against
-preact's 87 kB. The alias variant allocates 1.75x what the plain one does, which
-is the wrapper vnodes and their DOM nodes.
+## Two dodo columns
 
-## A trap worth knowing about
+`dodo` uses `alias` for rows; `dodo (no alias)` uses a plain function. An alias
+is backed by a real `<udom-alias>` element, so the aliased version puts 1,000
+extra elements in the document that no other library here creates — and it is
+the only one of the six that can then decline to re-render a row it knows has
+not changed. The gap between the two columns is what that memoisation is worth:
+16.3ms against nothing on an unchanged re-render, 15.3ms against 1.9ms on a
+single selection.
 
-`alias` memoises on its arguments, and `shouldUpdate` compares those arguments
-**by identity**. So the documented idiom —
-
-```javascript
-const todoItem = dd.alias(props => { ... });
-todoItem({todo, isEditing});           // fresh object every call
-```
-
-— never memoises, because the props object is rebuilt on every render and never
-equals the last one. Passing arguments positionally does memoise:
-
-```javascript
-const todoItem = dd.alias((todo, isEditing) => { ... });
-todoItem(todo, isEditing);
-```
-
-This is not a small difference. It is the whole of the `re-render unchanged`
-column (0.00ms against 15.5ms) and most of `select one row` (1.7ms against
-15.1ms). The first version of this benchmark used the object form and made dodo
-look uniformly slower than everything it was measured against.
+Both call their components the ordinary way, with a props object built fresh on
+every render. That works because `shouldUpdate` looks one level into the
+arguments; while it compared them by identity alone, the wrapper never matched
+and the first version of this benchmark measured dodo with its memoisation
+silently disabled.

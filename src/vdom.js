@@ -108,15 +108,61 @@ class VNode {
   }
 }
 
+// How large a nested array or object may be before `sameNested` gives up and
+// says "changed". Values built inline in a render function are small — a props
+// bag, a pair, a short list — and the bound is what keeps the extra comparison
+// from turning into an unbounded walk over whatever a caller happens to pass.
+const NESTED_COMPARE_LIMIT = 8;
+
+// One level below the top, and no further.
+//
+// Everything a render function builds inline is a fresh object, so comparing
+// the members of an args array or a props map by identity means an `alias`
+// called as `component({a, b})` never once matches its previous arguments, and
+// a `.props({style: {...}})` never matches either. Both are the documented way
+// to write them, and both quietly cost a full re-render every time.
+//
+// Only plain objects and arrays are opened up. Anything else keeps its old
+// answer of "changed", because for most other objects the interesting state is
+// not in the own enumerable keys at all: a `DOMRect` has none, so descending
+// into one by prototype would report every rect as equal to every other and a
+// `watch` over an element's size would stop updating.
+function sameNested(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (a.constructor !== b.constructor) return false;
+
+  if (Array.isArray(a)) {
+    if (a.length !== b.length || a.length > NESTED_COMPARE_LIMIT) return false;
+    for (let j = 0; j < a.length; j++) {
+      if (a[j] !== b[j]) return false;
+    }
+    return true;
+  }
+
+  if (a.constructor === Object) {
+    const keysA = Object.keys(a);
+    if (keysA.length > NESTED_COMPARE_LIMIT || keysA.length !== Object.keys(b).length) return false;
+    for (const key of keysA) {
+      if (!hasOwn(b, key) || a[key] !== b[key]) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
 function defaultShouldUpdate(a, b) {
   if (a === b) return false;
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     if (a.constructor !== b.constructor) return true;
 
+    // `!==` first at both levels, so two identical members cost a comparison
+    // and not a call. Only members that actually differ are looked into.
     if (Array.isArray(a)) {
       if (a.length !== b.length) return true;
       for (let j = 0; j < a.length; j++) {
-        if (a[j] !== b[j]) return true;
+        if (a[j] !== b[j] && !sameNested(a[j], b[j])) return true;
       }
       return false;
     }
@@ -125,7 +171,8 @@ function defaultShouldUpdate(a, b) {
       const keysA = Object.keys(a);
       if (keysA.length !== Object.keys(b).length) return true;
       for (const key of keysA) {
-        if (!hasOwn(b, key) || a[key] !== b[key]) return true;
+        if (!hasOwn(b, key)) return true;
+        if (a[key] !== b[key] && !sameNested(a[key], b[key])) return true;
       }
       return false;
     }
@@ -201,6 +248,13 @@ function addPathToFocusWithinSet(set, path) {
 function nodePrototypeFor(doc, settingsWindow) {
   const view = settingsWindow ?? doc?.defaultView ?? globalThis;
   return view.Node?.prototype ?? view.Element?.prototype;
+}
+
+// `moveBefore` relocates without detaching, so it keeps focus and does not
+// restart animations; it only applies to a node that is already in the document.
+function placeNode(target, node, before, insertBefore, moveBefore) {
+  const op = moveBefore && node.isConnected ? moveBefore : insertBefore;
+  op.call(target, node, before);
 }
 
 // `moveBefore` is a `ParentNode` method, so it is on `Element` and
@@ -818,18 +872,56 @@ export default userSettings => {
     return pool.nodes[pool.cursor++];
   }
 
-  // Places children in order, walking the existing siblings alongside the
-  // desired list so that only nodes that are genuinely out of position move.
+  // Places children in order by closing in from both ends at once.
+  //
+  // A single cursor walking front to back cannot get past a node that belongs
+  // much later: it stays parked there while every node that should precede it
+  // is moved in front of it, one at a time. Swapping the second and the second
+  // to last of a thousand children cost 997 moves that way, where two will do.
+  // Matching at the tail as well as the head means a node that belongs at the
+  // far end is recognised as such and moved once.
+  //
+  // The invariant is that `newDomChildren[0..start-1]` are already in place at
+  // the front and `newDomChildren[end+1..]` at the back, `head` is the first
+  // child belonging to neither, and `suffix` is the first child of the placed
+  // tail — which is also where anything inserted at the end belongs.
   function placeChildren(target, newDomChildren, insertBefore, moveBefore) {
-    let ref = target.firstChild;
-    for (let i = 0; i < newDomChildren.length; i++) {
-      const newChild = newDomChildren[i];
-      if (newChild === ref) {
-        ref = ref.nextSibling;
-        continue;
+    let start = 0;
+    let end = newDomChildren.length - 1;
+    let head = target.firstChild;
+    let suffix = null;
+
+    while (start <= end) {
+      const wantedFirst = newDomChildren[start];
+      const wantedLast = newDomChildren[end];
+      const tail = suffix ? suffix.previousSibling : target.lastChild;
+
+      if (wantedFirst === head) {
+        head = head.nextSibling;
+        start++;
+      } else if (wantedLast === tail) {
+        suffix = tail;
+        end--;
+      } else if (wantedLast === head) {
+        // The node at the front belongs at the back of what is left. Both this
+        // and the branch below need two or more children still unplaced, which
+        // the checks above guarantee: with only one left, head is tail.
+        const next = head.nextSibling;
+        placeNode(target, head, suffix, insertBefore, moveBefore);
+        suffix = head;
+        head = next;
+        end--;
+      } else if (wantedFirst === tail) {
+        // ...and the reverse, which together are what a swap looks like.
+        placeNode(target, tail, head, insertBefore, moveBefore);
+        start++;
+      } else {
+        // Neither end matches: put the wanted node at the front of the gap.
+        // Once nothing is left between, `head` has advanced onto the placed
+        // suffix, or onto null, which is where a new node belongs anyway.
+        placeNode(target, wantedFirst, head, insertBefore, moveBefore);
+        start++;
       }
-      const op = moveBefore && newChild.isConnected ? moveBefore : insertBefore;
-      op.call(target, newChild, ref);
     }
   }
 

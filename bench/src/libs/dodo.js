@@ -2,10 +2,11 @@ import * as dd from '@3sln/dodo';
 
 // `className` stays a plain property rather than `.classes()`, because that is
 // the single property write every other library here performs.
-// Positional, not `row({item})`: an alias memoises on its arguments, and
-// `shouldUpdate` compares them by identity, so a fresh object literal per call
-// defeats it — the row would be rebuilt every render however stable the item is.
-const row = dd.alias(item =>
+// The object form, which is how components are usually written. It memoises
+// because `shouldUpdate` looks one level into the arguments; comparing them by
+// identity alone would rebuild every row on every render, since the wrapper is
+// freshly allocated each call.
+const row = dd.alias(({item}) =>
   dd
     .tr(
       dd.td(item.id).props({className: 'col-md-1'}),
@@ -25,14 +26,14 @@ const row = dd.alias(item =>
     .props({id: item.id, className: item.selected ? 'danger' : ''}),
 );
 
-const app = dd.alias(items =>
+const app = dd.alias(({items}) =>
   dd
     .div(
       dd
         .div(dd.div(dd.div(dd.h1('dodo')).props({className: 'col-md-6'})).props({className: 'row'}))
         .props({className: 'jumbotron'}),
       dd
-        .table(dd.tbody(items.map(item => row(item).key(item.id))))
+        .table(dd.tbody(items.map(item => row({item}).key(item.id))))
         .props({className: 'table table-hover table-striped test-data'}),
     )
     .props({className: 'container'}),
@@ -46,7 +47,7 @@ export default {
     root = container;
   },
   render(items) {
-    dd.reconcile(root, app(items));
+    dd.reconcile(root, app({items}));
   },
   unmount() {
     dd.reconcile(root, null);

@@ -1,5 +1,5 @@
 import {test, expect, describe, beforeEach, afterEach, mock, createRealm} from './test-helpers.js';
-import {h, alias, special, reconcile, schedule, flush, clear, dodo} from './index.js';
+import {h, alias, special, reconcile, schedule, flush, clear, dodo, settings} from './index.js';
 
 let window;
 let document;
@@ -1088,5 +1088,198 @@ describe('custom iteration settings', () => {
     const custom = dodo({isSeq: x => Array.isArray(x), seqIter: s => s[0]});
     custom.reconcile(container, [['only']]);
     expect(container.textContent).toBe('only');
+  });
+});
+
+describe('placing children from both ends', () => {
+  let mounted;
+  const list = order =>
+    h(
+      'div',
+      order.map(k => h('span', k).key(k)),
+    );
+  const ids = () => [...mounted.firstChild.childNodes].map(n => n.textContent).join('');
+
+  // Counts what the reconciler asked the DOM to do, which is the thing that
+  // actually costs: a swap that relocates one node is not the same as a swap
+  // that drags 997 nodes past it, however similar the result looks.
+  // `scope` limits the count to one parent, so that building a new child's own
+  // contents does not read as the list having been rearranged.
+  const countingMoves = (body, scope) => {
+    let moves = 0;
+    const counts = self => !scope || self === scope;
+    const nativeMove = window.Element.prototype.moveBefore;
+    const nativeInsert = window.Node.prototype.insertBefore;
+    window.Element.prototype.moveBefore = function (...args) {
+      if (counts(this)) moves++;
+      return nativeMove.apply(this, args);
+    };
+    window.Node.prototype.insertBefore = function (...args) {
+      if (counts(this)) moves++;
+      return nativeInsert.apply(this, args);
+    };
+    try {
+      body();
+    } finally {
+      window.Element.prototype.moveBefore = nativeMove;
+      window.Node.prototype.insertBefore = nativeInsert;
+    }
+    return moves;
+  };
+
+  const letters = n => Array.from({length: n}, (_, i) => `k${i}`);
+
+  beforeEach(() => {
+    mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+  });
+
+  test('should move only the two nodes a swap actually displaces', () => {
+    const order = letters(50);
+    reconcile(mounted, [list(order)]);
+
+    const swapped = order.slice();
+    swapped[1] = order[48];
+    swapped[48] = order[1];
+
+    const moves = countingMoves(() => reconcile(mounted, [list(swapped)]));
+    expect(ids()).toBe(swapped.join(''));
+    // A head-only walk drags every node between the two past the first of them.
+    expect(moves).toBe(2);
+  });
+
+  test('should move one node for a swap of neighbours', () => {
+    const order = letters(50);
+    reconcile(mounted, [list(order)]);
+
+    const swapped = order.slice();
+    swapped[10] = order[11];
+    swapped[11] = order[10];
+
+    expect(countingMoves(() => reconcile(mounted, [list(swapped)]))).toBe(1);
+    expect(ids()).toBe(swapped.join(''));
+  });
+
+  test('should append without touching what is already there', () => {
+    reconcile(mounted, [list(letters(20))]);
+    const grown = [...letters(20), 'x', 'y'];
+    const listElement = mounted.firstChild;
+    const moves = countingMoves(() => reconcile(mounted, [list(grown)]), listElement);
+    // Two new children, and not one of the twenty already in place is touched.
+    expect(moves).toBe(2);
+    expect(ids()).toBe(grown.join(''));
+  });
+
+  test('should prepend without touching what is already there', () => {
+    reconcile(mounted, [list(letters(20))]);
+    const grown = ['x', 'y', ...letters(20)];
+    const listElement = mounted.firstChild;
+    const moves = countingMoves(() => reconcile(mounted, [list(grown)]), listElement);
+    expect(moves).toBe(2);
+    expect(ids()).toBe(grown.join(''));
+  });
+
+  test('should arrive at the right order for reversals, shuffles and gaps', () => {
+    const order = letters(40);
+    reconcile(mounted, [list(order)]);
+
+    const cases = [
+      [...order].reverse(),
+      order.filter((_, i) => i % 3 !== 0),
+      [...order.slice(20), ...order.slice(0, 20)],
+      ['new1', ...order.slice(5, 15), 'new2', ...order.slice(0, 5), 'new3'],
+      order.filter((_, i) => i % 2 === 0).reverse(),
+      [],
+      order,
+    ];
+    for (const wanted of cases) {
+      reconcile(mounted, [list(wanted)]);
+      expect(ids()).toBe(wanted.join(''));
+    }
+  });
+
+  test('should keep reusing nodes across a reversal', () => {
+    const order = letters(10);
+    reconcile(mounted, [list(order)]);
+    const before = new Map([...mounted.firstChild.childNodes].map(n => [n.textContent, n]));
+
+    reconcile(mounted, [list([...order].reverse())]);
+    for (const node of mounted.firstChild.childNodes) {
+      expect(node).toBe(before.get(node.textContent));
+    }
+  });
+});
+
+describe('shouldUpdate looks one level down', () => {
+  const changed = (a, b) => settings.shouldUpdate(a, b);
+
+  test('should compare a small nested object by its contents', () => {
+    expect(changed([{item: 1}], [{item: 1}])).toBe(false);
+    expect(changed([{item: 1}], [{item: 2}])).toBe(true);
+    expect(changed({a: {x: 1}}, {a: {x: 1}})).toBe(false);
+    expect(changed({a: {x: 1}}, {a: {x: 2}})).toBe(true);
+  });
+
+  test('should compare a small nested array by its contents', () => {
+    expect(changed([['a', 'b']], [['a', 'b']])).toBe(false);
+    expect(changed([['a', 'b']], [['a', 'c']])).toBe(true);
+    expect(changed([[]], [[]])).toBe(false);
+  });
+
+  test('should stop at one level down', () => {
+    // The wrapper matches, but its member is a fresh object either way.
+    expect(changed([{item: {deep: 1}}], [{item: {deep: 1}}])).toBe(true);
+  });
+
+  test('should give up on anything past the size bound', () => {
+    const wide = n => Object.fromEntries(Array.from({length: n}, (_, i) => [`k${i}`, i]));
+    expect(changed([wide(8)], [wide(8)])).toBe(false);
+    expect(changed([wide(9)], [wide(9)])).toBe(true);
+
+    const long = n => Array.from({length: n}, (_, i) => i);
+    expect(changed([long(8)], [long(8)])).toBe(false);
+    expect(changed([long(9)], [long(9)])).toBe(true);
+  });
+
+  test('should not descend into objects whose state is not in their keys', () => {
+    // A DOMRect has no own enumerable keys, so comparing one by them would
+    // report every rect equal to every other and stop a watch from updating.
+    const rect = (w, hgt) => new window.DOMRect(0, 0, w, hgt);
+    expect(changed([rect(1, 1)], [rect(1, 1)])).toBe(true);
+    expect(changed([new Date(0)], [new Date(5)])).toBe(true);
+    expect(changed([new Date(0)], [new Date(0)])).toBe(true);
+  });
+
+  test('should still report a difference in prototype', () => {
+    class Box {
+      constructor(v) {
+        this.v = v;
+      }
+    }
+    expect(changed([new Box(1)], [new Box(1)])).toBe(true);
+    expect(changed([{v: 1}], [new Box(1)])).toBe(true);
+  });
+});
+
+describe('alias memoisation with an object argument', () => {
+  test('should not re-render when a props object is rebuilt with the same contents', () => {
+    const built = mock();
+    const component = alias(props => {
+      built();
+      return h('p', props.label);
+    });
+
+    const render = label => reconcile(container, [component({label, extra: 'same'})]);
+
+    render('first');
+    expect(built).toHaveBeenCalledTimes(1);
+
+    // A fresh object every call, which is how components are written.
+    render('first');
+    expect(built).toHaveBeenCalledTimes(1);
+
+    render('second');
+    expect(built).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe('second');
   });
 });
