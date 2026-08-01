@@ -1,6 +1,8 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import {dodo, h, reconcile, settings as defaultSettings} from './index.js';
+
+let window;
+let document;
 
 /**
  * A persistent map with nothing plain about it: the entries live in a private
@@ -54,8 +56,7 @@ test('the fixture is genuinely foreign', () => {
 
 let container;
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   container = document.createElement('div');
   document.body.appendChild(container);
 });
@@ -80,16 +81,11 @@ for (const [label, userSettings] of Object.entries(variants)) {
       d.reconcile(
         container,
         d
-          .h(
-            'div',
-            PMap.from({
-              id: 'foreign',
-              $styling: PMap.from({color: 'red', 'font-size': '12px'}),
-              $attrs: PMap.from({role: 'main', 'aria-label': 'x'}),
-              $dataset: PMap.from({foo: 'a', bar: 'b'}),
-            }),
-            d.h('p', null, 'hi'),
-          )
+          .h('div', d.h('p', 'hi'))
+          .props(PMap.from({id: 'foreign'}))
+          .style(PMap.from({color: 'red', 'font-size': '12px'}))
+          .attrs(PMap.from({role: 'main', 'aria-label': 'x'}))
+          .data(PMap.from({foo: 'a', bar: 'b'}))
           .on(PMap.from({click: clicked})),
       );
 
@@ -107,21 +103,20 @@ for (const [label, userSettings] of Object.entries(variants)) {
       const d = dodo(userSettings);
       const clicked = mock();
       const full = d
-        .h(
-          'div',
-          PMap.from({
-            id: 'a',
-            $styling: PMap.from({color: 'red', 'font-size': '12px'}),
-            $attrs: PMap.from({role: 'main', 'aria-label': 'x'}),
-            $dataset: PMap.from({foo: 'a', bar: 'b'}),
-          }),
-        )
+        .h('div')
+        .props(PMap.from({id: 'a'}))
+        .style(PMap.from({color: 'red', 'font-size': '12px'}))
+        .attrs(PMap.from({role: 'main', 'aria-label': 'x'}))
+        .data(PMap.from({foo: 'a', bar: 'b'}))
         .on(PMap.from({click: clicked}));
 
       d.reconcile(container, full);
       d.reconcile(
         container,
-        d.h('div', PMap.from({id: 'b', $styling: PMap.from({color: 'blue'})})),
+        d
+          .h('div')
+          .props(PMap.from({id: 'b'}))
+          .style(PMap.from({color: 'blue'})),
       );
 
       expect(container.id).toBe('b');
@@ -192,7 +187,7 @@ describe('default mapEach enumerates own keys only', () => {
   test('a prototype-borne prop does not reach the DOM', () => {
     const props = Object.create({id: 'from-prototype'});
     props.title = 'own';
-    reconcile(container, h('div', props));
+    reconcile(container, h('div').props(props));
     expect(container.title).toBe('own');
     expect(container.id).toBe('');
   });

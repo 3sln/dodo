@@ -3,19 +3,13 @@ import * as d from '@3sln/dodo';
 export default driver => {
   const coloredBox = d.alias(props => {
     const {color, count} = props;
-    return d.div(
-      {
-        $styling: {
-          'background-color': color,
-          padding: '1em',
-          color: 'white',
-          borderRadius: '4px',
-          textAlign: 'center',
-        },
-      },
-      d.h3('Aliased Component'),
-      d.p(`Render count: ${count}`),
-    );
+    return d.div(d.h3('Aliased Component'), d.p(`Render count: ${count}`)).style({
+      'background-color': color,
+      padding: '1em',
+      color: 'white',
+      borderRadius: '4px',
+      textAlign: 'center',
+    });
   });
 
   driver.panel('Demo', (container, signal) => {

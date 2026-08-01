@@ -27,15 +27,32 @@ import { reconcile, h1, p, div } from '@3sln/dodo';
 const container = document.getElementById('root');
 
 // Use helper functions like h1(), p(), etc. for standard elements.
-// The props object is optional.
-const myVdom = div({ id: 'app' },
+// A tag is followed by its children, and nothing else.
+const myVdom = div(
   h1('Hello, dodo!'),
-  p('This is a paragraph.')
-);
+  p('This is a paragraph.').classes('lede')
+).props({ id: 'app' });
 
 // Reconcile the virtual DOM with the real DOM.
 reconcile(container, [myVdom]);
 ```
+
+Everything about an element — its properties included — is chained onto the
+vnode, and every setter returns the vnode:
+
+```javascript
+div('content')
+  .props({ id: 'card' })
+  .style({ 'background-color': 'white', padding: '1em' })
+  .classes('card', isActive && 'active')
+  .attrs({ role: 'group' })
+  .data({ cardId: id })
+  .key(id)
+  .on({ click: onClick });
+```
+
+Each map is compared in its own right rather than by identity, so an object
+literal rebuilt every render compares equal when its contents have not changed.
 
 ## Optional modules
 
@@ -91,7 +108,7 @@ a detached `watch` takes its observer with it.
 ```javascript
 import {withElementSize, withVisibility} from '@3sln/dodo/observe';
 
-withElementSize(size => canvas({width: size.width, height: size.height}))
+withElementSize(size => canvas().props({width: size.width, height: size.height}))
 
 withVisibility(visible => (visible ? chart() : skeleton()), {root: '.scroller'})
 ```

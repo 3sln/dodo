@@ -31,18 +31,15 @@ function defaultRenderError(h) {
   return error =>
     h(
       'pre',
-      {
-        $styling: {
-          'background-color': '#fdd',
-          color: '#330',
-          padding: '1em',
-          'white-space': 'pre-wrap',
-        },
-      },
-      h('strong', null, `Error: ${error?.message ?? String(error)}`),
+      h('strong', `Error: ${error?.message ?? String(error)}`),
       '\n\n',
       error?.stack ?? '',
-    );
+    ).style({
+      'background-color': '#fdd',
+      color: '#330',
+      padding: '1em',
+      'white-space': 'pre-wrap',
+    });
 }
 
 function looksLikeDodo(value) {

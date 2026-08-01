@@ -19,11 +19,58 @@ function sameTagName(nodeName, tag) {
   return typeof tag === 'string' && nodeName.toLowerCase() === tag.toLowerCase();
 }
 
+// Whether an object can describe itself as text. `Object.prototype.toString`
+// answers "[object Object]" for anything that has not said otherwise, and a
+// null-prototyped object cannot answer at all.
+function hasTextForm(value) {
+  return (
+    typeof value[Symbol.toPrimitive] === 'function' ||
+    (typeof value.toString === 'function' && value.toString !== Object.prototype.toString)
+  );
+}
+
+// Props, styling, classes, attributes and dataset belong to an element, not to
+// an alias's or a special's argument list.
+function assertElementNode(vnode, method) {
+  if (vnode.type !== ELEMENT_NODE && vnode.type !== OPAQUE_NODE) {
+    throw new Error(`${method} can only be used on element nodes (h).`);
+  }
+}
+
+// Styling, classes, attributes and dataset all live in one `$` object rather
+// than in a field of their own each. It keeps "did any of these change" to a
+// single identity check for the common node that chains none of them, and the
+// object is only allocated for a node that chains at least one.
+function setSpecial(vnode, method, name, value) {
+  assertElementNode(vnode, method);
+  // All four keys are written up front so that every `$` object shares a shape.
+  if (!vnode.$) {
+    vnode.$ = {styling: undefined, classes: undefined, attrs: undefined, dataset: undefined};
+  }
+  vnode.$[name] = value;
+  return vnode;
+}
+
 class VNode {
   constructor(type, tag, args) {
     this.type = type;
     this.tag = tag;
     this.args = args;
+    // Declared up front so that every vnode shares one shape regardless of
+    // which setters are chained onto it, or in what order. Writing a field that
+    // already exists is not a shape transition; adding one is.
+    this.p = undefined;
+    this.k = undefined;
+    this.hooks = undefined;
+    this.$ = undefined;
+  }
+
+  // Every setter replaces rather than merges: calling one twice leaves only the
+  // second value.
+  props(props) {
+    assertElementNode(this, '.props()');
+    this.p = props;
+    return this;
   }
 
   key(k) {
@@ -36,6 +83,22 @@ class VNode {
     return this;
   }
 
+  style(styling) {
+    return setSpecial(this, '.style()', 'styling', styling);
+  }
+
+  classes(...classes) {
+    return setSpecial(this, '.classes()', 'classes', classes);
+  }
+
+  attrs(attrs) {
+    return setSpecial(this, '.attrs()', 'attrs', attrs);
+  }
+
+  data(dataset) {
+    return setSpecial(this, '.data()', 'dataset', dataset);
+  }
+
   opaque() {
     if (this.type !== ELEMENT_NODE) {
       throw new Error('.opaque() can only be used on element nodes (h).');
@@ -45,15 +108,61 @@ class VNode {
   }
 }
 
+// How large a nested array or object may be before `sameNested` gives up and
+// says "changed". Values built inline in a render function are small — a props
+// bag, a pair, a short list — and the bound is what keeps the extra comparison
+// from turning into an unbounded walk over whatever a caller happens to pass.
+const NESTED_COMPARE_LIMIT = 8;
+
+// One level below the top, and no further.
+//
+// Everything a render function builds inline is a fresh object, so comparing
+// the members of an args array or a props map by identity means an `alias`
+// called as `component({a, b})` never once matches its previous arguments, and
+// a `.props({style: {...}})` never matches either. Both are the documented way
+// to write them, and both quietly cost a full re-render every time.
+//
+// Only plain objects and arrays are opened up. Anything else keeps its old
+// answer of "changed", because for most other objects the interesting state is
+// not in the own enumerable keys at all: a `DOMRect` has none, so descending
+// into one by prototype would report every rect as equal to every other and a
+// `watch` over an element's size would stop updating.
+function sameNested(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (a.constructor !== b.constructor) return false;
+
+  if (Array.isArray(a)) {
+    if (a.length !== b.length || a.length > NESTED_COMPARE_LIMIT) return false;
+    for (let j = 0; j < a.length; j++) {
+      if (a[j] !== b[j]) return false;
+    }
+    return true;
+  }
+
+  if (a.constructor === Object) {
+    const keysA = Object.keys(a);
+    if (keysA.length > NESTED_COMPARE_LIMIT || keysA.length !== Object.keys(b).length) return false;
+    for (const key of keysA) {
+      if (!hasOwn(b, key) || a[key] !== b[key]) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
 function defaultShouldUpdate(a, b) {
   if (a === b) return false;
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     if (a.constructor !== b.constructor) return true;
 
+    // `!==` first at both levels, so two identical members cost a comparison
+    // and not a call. Only members that actually differ are looked into.
     if (Array.isArray(a)) {
       if (a.length !== b.length) return true;
       for (let j = 0; j < a.length; j++) {
-        if (a[j] !== b[j]) return true;
+        if (a[j] !== b[j] && !sameNested(a[j], b[j])) return true;
       }
       return false;
     }
@@ -62,7 +171,8 @@ function defaultShouldUpdate(a, b) {
       const keysA = Object.keys(a);
       if (keysA.length !== Object.keys(b).length) return true;
       for (const key of keysA) {
-        if (!hasOwn(b, key) || a[key] !== b[key]) return true;
+        if (!hasOwn(b, key)) return true;
+        if (a[key] !== b[key] && !sameNested(a[key], b[key])) return true;
       }
       return false;
     }
@@ -138,6 +248,26 @@ function addPathToFocusWithinSet(set, path) {
 function nodePrototypeFor(doc, settingsWindow) {
   const view = settingsWindow ?? doc?.defaultView ?? globalThis;
   return view.Node?.prototype ?? view.Element?.prototype;
+}
+
+// `moveBefore` relocates without detaching, so it keeps focus and does not
+// restart animations; it only applies to a node that is already in the document.
+function placeNode(target, node, before, insertBefore, moveBefore) {
+  const op = moveBefore && node.isConnected ? moveBefore : insertBefore;
+  op.call(target, node, before);
+}
+
+// `moveBefore` is a `ParentNode` method, so it is on `Element` and
+// `DocumentFragment` and never on `Node` — looking for it beside `insertBefore`
+// finds nothing in every browser that implements it. Which prototype depends on
+// what is being reconciled into: an element, or a shadow root or fragment.
+function parentMoveBeforeFor(target, doc, settingsWindow) {
+  const view = settingsWindow ?? doc?.defaultView ?? globalThis;
+  const proto =
+    target.nodeType === 1 /* ELEMENT_NODE */
+      ? view.Element?.prototype
+      : view.DocumentFragment?.prototype;
+  return typeof proto?.moveBefore === 'function' ? proto.moveBefore : null;
 }
 
 function installFocusTrackingForDocument(doc) {
@@ -271,9 +401,9 @@ export default userSettings => {
 
   const flattenSeq = userSettings?.flattenSeq ?? defaultFlattenSeq;
 
-  function flattenVNodeChildren(children, startIndex) {
+  function flattenVNodeChildren(children) {
     const array = [];
-    for (let i = startIndex; i < children.length; i++) {
+    for (let i = 0; i < children.length; i++) {
       const item = children[i];
       if (isBlank(item)) continue;
       if (!isSeq(item)) {
@@ -288,16 +418,27 @@ export default userSettings => {
   // Blank children are filtered out before they reach here, but a custom
   // `flattenSeq` may not do that filtering, so never assume `.toString()` exists.
   function toText(value) {
-    return isBlank(value) ? '' : String(value);
+    if (isBlank(value)) return '';
+    // Vnodes and seqs are dealt with before anything reaches here, so an object
+    // in the text position is a mistake — most often a map that belongs in
+    // `.props()` or `.style()` and landed in the child list instead. Rendering
+    // it would put the string "[object Object]" on the page, which is never
+    // what was meant, so it is refused wherever it turns up rather than only in
+    // the slot props used to occupy. An object that can describe itself as text
+    // (a `Date`, a `URL`, anything with its own `toString`) still renders.
+    if (typeof value === 'object' && !hasTextForm(value)) {
+      throw new Error(
+        'invalid child: an object with no text form. If it is a map of element properties, chain .props({...}) instead.',
+      );
+    }
+    return String(value);
   }
 
-  function h(tag, props, ...children) {
-    if (!isMap(props)) {
-      // An explicit nullish props slot means "no props", not "render nothing".
-      if (props !== null && props !== undefined) children.unshift(props);
-      props = EMPTY_MAP;
-    }
-    return new VNode(ELEMENT_NODE, convertTagName(tag), [props, ...children]);
+  // Everything after the tag is a child. Properties are chained on with
+  // `.props()`, which is also the only way to reach an element's property when
+  // its name collides with one of the setters.
+  function h(tag, ...children) {
+    return new VNode(ELEMENT_NODE, convertTagName(tag), children);
   }
 
   // Visitors are hoisted to the factory closure rather than written inline, so
@@ -365,6 +506,49 @@ export default userSettings => {
     }
   }
 
+  // The chained counterpart to the `$`-prefixed props: one pass over the four
+  // facets a vnode can carry. Reconciling them from the vnode rather than from
+  // the props map means a `.style()` map rebuilt with the same contents is
+  // compared as a map, not by identity, so it does not force a second pass.
+  function reconcileElementSpecials(target, newSpecials, oldSpecials) {
+    if (!newSpecials && !oldSpecials) return;
+
+    const newStyling = newSpecials?.styling;
+    const oldStyling = oldSpecials?.styling;
+    if (newStyling !== undefined || oldStyling !== undefined) {
+      if (newStyling !== undefined && !isMap(newStyling)) {
+        throw new Error('invalid value for .style(), expected a map');
+      }
+      reconcileElementStyling(target, oldStyling ?? EMPTY_MAP, newStyling ?? EMPTY_MAP);
+    }
+
+    // `.classes()` collects its rest arguments, so this side is always an array
+    // — nested seqs within it are flattened by `reconcileElementClasses`.
+    const newClasses = newSpecials?.classes;
+    const oldClasses = oldSpecials?.classes;
+    if (newClasses !== undefined || oldClasses !== undefined) {
+      reconcileElementClasses(target, oldClasses ?? [], newClasses ?? []);
+    }
+
+    const newAttrs = newSpecials?.attrs;
+    const oldAttrs = oldSpecials?.attrs;
+    if (newAttrs !== undefined || oldAttrs !== undefined) {
+      if (newAttrs !== undefined && !isMap(newAttrs)) {
+        throw new Error('invalid value for .attrs(), expected a map');
+      }
+      reconcileElementAttributes(target, oldAttrs ?? EMPTY_MAP, newAttrs ?? EMPTY_MAP);
+    }
+
+    const newDataset = newSpecials?.dataset;
+    const oldDataset = oldSpecials?.dataset;
+    if (newDataset !== undefined || oldDataset !== undefined) {
+      if (newDataset !== undefined && !isMap(newDataset)) {
+        throw new Error('invalid value for .data(), expected a map');
+      }
+      reconcileElementDataset(target, oldDataset ?? EMPTY_MAP, newDataset ?? EMPTY_MAP);
+    }
+  }
+
   function setElementProp(target, nodeState, propName, newValue) {
     if (UNSAFE_PROP_NAMES.has(propName)) {
       console.error(`Refusing to assign unsafe prop name '${propName}' to a DOM node.`);
@@ -386,79 +570,33 @@ export default userSettings => {
   }
 
   function applyProp(name, newValue, target, oldProps, isHtml) {
+    if (Object.is(newValue, mapGet(oldProps, name))) return;
+
     const propName = convertPropName(name);
-    const oldValue = mapGet(oldProps, name);
-
-    if (Object.is(newValue, oldValue)) return;
-
-    switch (propName) {
-      case '$styling': {
-        if (!isMap(newValue)) throw new Error('invalid value for styling prop');
-        reconcileElementStyling(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-        break;
-      }
-      case '$classes': {
-        if (!isSeq(newValue)) throw new Error('invalid value for classes prop');
-        reconcileElementClasses(target, oldValue ?? [], newValue ?? []);
-        break;
-      }
-      case '$attrs': {
-        if (!isMap(newValue)) throw new Error('invalid value for attrs prop');
-        reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-        break;
-      }
-      case '$dataset': {
-        if (!isMap(newValue)) throw new Error('invalid value for dataset prop');
-        reconcileElementDataset(target, oldValue ?? EMPTY_MAP, newValue ?? EMPTY_MAP);
-        break;
-      }
-      default: {
-        if (isHtml) {
-          setElementProp(target, target[NODE_STATE], propName, newValue);
-        } else {
-          if (newValue === undefined) {
-            target.removeAttribute(propName);
-          } else {
-            target.setAttribute(propName, newValue);
-          }
-        }
-        break;
-      }
+    if (isHtml) {
+      setElementProp(target, target[NODE_STATE], propName, newValue);
+    } else if (newValue === undefined) {
+      target.removeAttribute(propName);
+    } else {
+      target.setAttribute(propName, newValue);
     }
   }
 
-  function restoreRemovedProp(name, oldValue, target, props, isHtml) {
+  function restoreRemovedProp(name, _oldValue, target, props, isHtml) {
     if (mapGet(props, name) !== undefined) return; // it wasn't removed
 
     const propName = convertPropName(name);
-    switch (propName) {
-      case '$styling':
-        reconcileElementStyling(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-        break;
-      case '$classes':
-        reconcileElementClasses(target, oldValue ?? [], []);
-        break;
-      case '$attrs':
-        reconcileElementAttributes(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-        break;
-      case '$dataset':
-        reconcileElementDataset(target, oldValue ?? EMPTY_MAP, EMPTY_MAP);
-        break;
-      default: {
-        if (isHtml) {
-          restoreElementProp(target, target[NODE_STATE], propName);
-        } else {
-          target.removeAttribute(propName);
-        }
-        break;
-      }
+    if (isHtml) {
+      restoreElementProp(target, target[NODE_STATE], propName);
+    } else {
+      target.removeAttribute(propName);
     }
   }
 
   function reconcileElementProps(target, props) {
     const nodeState = target[NODE_STATE];
     const isHtml = target.namespaceURI === HTML_NAMESPACE;
-    const oldProps = nodeState.vdom?.args[0] ?? EMPTY_MAP;
+    const oldProps = nodeState.vdom?.p ?? EMPTY_MAP;
 
     mapEach(props, applyProp, target, oldProps, isHtml);
     mapEach(oldProps, restoreRemovedProp, target, props, isHtml);
@@ -530,12 +668,14 @@ export default userSettings => {
 
     switch (newVdom.type) {
       case ELEMENT_NODE: {
-        reconcileElementProps(target, args[0]);
-        reconcileElementChildren(target, flattenVNodeChildren(args, 1));
+        reconcileElementProps(target, newVdom.p ?? EMPTY_MAP);
+        reconcileElementSpecials(target, newVdom.$, oldVdom?.$);
+        reconcileElementChildren(target, flattenVNodeChildren(args));
         break;
       }
       case OPAQUE_NODE: {
-        reconcileElementProps(target, args[0]);
+        reconcileElementProps(target, newVdom.p ?? EMPTY_MAP);
+        reconcileElementSpecials(target, newVdom.$, oldVdom?.$);
         break;
       }
       case ALIAS_NODE: {
@@ -624,6 +764,7 @@ export default userSettings => {
 
     if (vdom.type === ELEMENT_NODE || vdom.type === OPAQUE_NODE) {
       reconcileElementProps(target, EMPTY_MAP);
+      reconcileElementSpecials(target, undefined, vdom.$);
     }
 
     if (vdom.type === ELEMENT_NODE || vdom.type === ALIAS_NODE) {
@@ -642,15 +783,38 @@ export default userSettings => {
     }
   }
 
-  // A reused node only needs a second pass when its arguments or its hooks
-  // changed; comparing hooks too means a node whose props are stable but whose
-  // listeners are freshly bound each render still gets those listeners swapped.
+  // Chained specials are compared facet by facet rather than as one object, so
+  // that a `.style()` map rebuilt with the same contents compares equal instead
+  // of differing by identity.
+  function specialsChanged(oldSpecials, newSpecials) {
+    // Both undefined for any node that chains nothing, which is most of them.
+    if (oldSpecials === newSpecials) return false;
+    if (!oldSpecials || !newSpecials) return true;
+    return (
+      shouldUpdate(oldSpecials.styling, newSpecials.styling) ||
+      shouldUpdate(oldSpecials.classes, newSpecials.classes) ||
+      shouldUpdate(oldSpecials.attrs, newSpecials.attrs) ||
+      shouldUpdate(oldSpecials.dataset, newSpecials.dataset)
+    );
+  }
+
+  // A reused node only needs a second pass when something it carries changed.
+  // Props and specials are compared as maps in their own right, so an object
+  // literal rebuilt with the same contents each render costs nothing; hooks are
+  // compared so that a node whose props are stable but whose listeners are
+  // freshly bound still gets those listeners swapped.
+  function vnodeChanged(oldVdom, newVdom) {
+    return (
+      shouldUpdate(oldVdom.args, newVdom.args) ||
+      shouldUpdate(oldVdom.p, newVdom.p) ||
+      shouldUpdate(oldVdom.hooks, newVdom.hooks) ||
+      specialsChanged(oldVdom.$, newVdom.$)
+    );
+  }
+
   function claimExistingNode(domNode, newVdom) {
     const state = domNode[NODE_STATE];
-    if (
-      shouldUpdate(state.vdom.args, newVdom.args) ||
-      shouldUpdate(state.vdom.hooks, newVdom.hooks)
-    ) {
+    if (vnodeChanged(state.vdom, newVdom)) {
       state.newVdom = newVdom;
     }
     return domNode;
@@ -708,18 +872,56 @@ export default userSettings => {
     return pool.nodes[pool.cursor++];
   }
 
-  // Places children in order, walking the existing siblings alongside the
-  // desired list so that only nodes that are genuinely out of position move.
+  // Places children in order by closing in from both ends at once.
+  //
+  // A single cursor walking front to back cannot get past a node that belongs
+  // much later: it stays parked there while every node that should precede it
+  // is moved in front of it, one at a time. Swapping the second and the second
+  // to last of a thousand children cost 997 moves that way, where two will do.
+  // Matching at the tail as well as the head means a node that belongs at the
+  // far end is recognised as such and moved once.
+  //
+  // The invariant is that `newDomChildren[0..start-1]` are already in place at
+  // the front and `newDomChildren[end+1..]` at the back, `head` is the first
+  // child belonging to neither, and `suffix` is the first child of the placed
+  // tail — which is also where anything inserted at the end belongs.
   function placeChildren(target, newDomChildren, insertBefore, moveBefore) {
-    let ref = target.firstChild;
-    for (let i = 0; i < newDomChildren.length; i++) {
-      const newChild = newDomChildren[i];
-      if (newChild === ref) {
-        ref = ref.nextSibling;
-        continue;
+    let start = 0;
+    let end = newDomChildren.length - 1;
+    let head = target.firstChild;
+    let suffix = null;
+
+    while (start <= end) {
+      const wantedFirst = newDomChildren[start];
+      const wantedLast = newDomChildren[end];
+      const tail = suffix ? suffix.previousSibling : target.lastChild;
+
+      if (wantedFirst === head) {
+        head = head.nextSibling;
+        start++;
+      } else if (wantedLast === tail) {
+        suffix = tail;
+        end--;
+      } else if (wantedLast === head) {
+        // The node at the front belongs at the back of what is left. Both this
+        // and the branch below need two or more children still unplaced, which
+        // the checks above guarantee: with only one left, head is tail.
+        const next = head.nextSibling;
+        placeNode(target, head, suffix, insertBefore, moveBefore);
+        suffix = head;
+        head = next;
+        end--;
+      } else if (wantedFirst === tail) {
+        // ...and the reverse, which together are what a swap looks like.
+        placeNode(target, tail, head, insertBefore, moveBefore);
+        start++;
+      } else {
+        // Neither end matches: put the wanted node at the front of the gap.
+        // Once nothing is left between, `head` has advanced onto the placed
+        // suffix, or onto null, which is where a new node belongs anyway.
+        placeNode(target, wantedFirst, head, insertBefore, moveBefore);
+        start++;
       }
-      const op = moveBefore && newChild.isConnected ? moveBefore : insertBefore;
-      op.call(target, newChild, ref);
     }
   }
 
@@ -824,9 +1026,8 @@ export default userSettings => {
     if (newDomChildren.length === 0) return;
 
     const doc = target.ownerDocument;
-    const nodeProto = nodePrototypeFor(doc, userSettings?.window);
-    const insertBefore = nodeProto.insertBefore;
-    const moveBefore = typeof nodeProto.moveBefore === 'function' ? nodeProto.moveBefore : null;
+    const insertBefore = nodePrototypeFor(doc, userSettings?.window).insertBefore;
+    const moveBefore = parentMoveBeforeFor(target, doc, userSettings?.window);
     const connected = target.isConnected;
 
     let anchorIndex = -1;
@@ -872,15 +1073,17 @@ export default userSettings => {
     }
 
     if (vdom instanceof VNode) {
-      if (state) {
+      // `state.vdom` rather than `state`: a target whose first reconciliation
+      // threw part way through is left holding a state with no vdom in it, and
+      // it has nothing attached that a retry needs to preserve. Claiming it
+      // afresh restarts cleanly, where reading through the missing vdom would
+      // report a null dereference on top of whatever actually went wrong.
+      if (state?.vdom) {
         // The tag has to match as well as the type: swapping the alias function
         // or the special descriptor is a different component, and reusing the
         // state would skip the old one's detach and the new one's attach.
         if (state.vdom.type === vdom.type && state.vdom.tag === vdom.tag) {
-          if (
-            shouldUpdate(state.vdom.args, vdom.args) ||
-            shouldUpdate(state.vdom.hooks, vdom.hooks)
-          ) {
+          if (vnodeChanged(state.vdom, vdom)) {
             state.newVdom = vdom;
             reconcileNode(target);
           }

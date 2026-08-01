@@ -1,5 +1,4 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import reactiveFactory, {PENDING} from './src/reactive.js';
 import observeFactory, {
@@ -8,6 +7,9 @@ import observeFactory, {
   elementVisibility,
   nearestLaidOutElement,
 } from './src/observe.js';
+
+let window;
+let document;
 
 const {h, reconcile, flush, clear} = dodo;
 const {withElementSize, withVisibility} = observeFactory({
@@ -64,8 +66,7 @@ function installObserverStubs(view) {
 }
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   installObserverStubs(window);
   clear();
   container = document.createElement('div');
@@ -109,13 +110,14 @@ describe('elementSize', () => {
   let laidOut;
   beforeEach(() => {
     laidOut = document.createElement('div');
-    laidOut.style.display = 'block';
+    laidOut.style.cssText = 'display:block;width:120px;height:40px';
     container.appendChild(laidOut);
   });
 
   test('measures directly when nothing has been observed yet', () => {
     const size = elementSize(laidOut);
-    expect(size.getValue()).toEqual({width: 0, height: 0});
+    // The element's real border box, read straight off the layout.
+    expect(size.getValue()).toEqual({width: 120, height: 40});
     // Never pending: a size is always knowable.
     expect(size.getValue()).not.toBe(PENDING);
   });
@@ -252,11 +254,12 @@ describe('elementVisibility', () => {
 describe('withElementSize', () => {
   test('renders the builder with the observed size', () => {
     const laidOut = document.createElement('div');
-    laidOut.style.display = 'block';
+    laidOut.style.cssText = 'display:block;width:120px;height:40px';
     container.appendChild(laidOut);
 
-    reconcile(laidOut, [withElementSize(size => h('p', null, `${size.width}x${size.height}`))]);
-    expect(laidOut.textContent).toBe('0x0');
+    reconcile(laidOut, [withElementSize(size => h('p', `${size.width}x${size.height}`))]);
+    // Measured before the observer has said anything.
+    expect(laidOut.textContent).toBe('120x40');
 
     resizeObservers[0].emit({width: 200, height: 100});
     flush();
@@ -264,7 +267,7 @@ describe('withElementSize', () => {
   });
 
   test('disconnects the observer when detached', () => {
-    reconcile(container, [withElementSize(size => h('p', null, String(size.width)))]);
+    reconcile(container, [withElementSize(size => h('p', String(size.width)))]);
     expect(resizeObservers[0].disconnected).toBe(false);
 
     reconcile(container, null);
@@ -274,7 +277,7 @@ describe('withElementSize', () => {
   test('does not rebuild the observer for an equal options literal', () => {
     const render = () =>
       reconcile(container, [
-        withElementSize(size => h('p', null, String(size.width)), {box: 'border-box'}),
+        withElementSize(size => h('p', String(size.width)), {box: 'border-box'}),
       ]);
 
     render();
@@ -286,7 +289,7 @@ describe('withElementSize', () => {
 
   test('rebuilds the observer when the options change', () => {
     const render = box =>
-      reconcile(container, [withElementSize(size => h('p', null, String(size.width)), {box})]);
+      reconcile(container, [withElementSize(size => h('p', String(size.width)), {box})]);
 
     render('content-box');
     expect(resizeObservers.length).toBe(1);
@@ -298,15 +301,17 @@ describe('withElementSize', () => {
   });
 
   test('does not re-render when the size did not change', () => {
-    const builder = mock(size => h('p', null, String(size.width)));
+    container.style.cssText = 'display:block;width:80px;height:20px';
+    const builder = mock(size => h('p', String(size.width)));
     reconcile(container, [withElementSize(builder)]);
     expect(builder).toHaveBeenCalledTimes(1);
 
-    resizeObservers[0].emit({width: 0, height: 0});
+    // The size it was already measured at, so there is nothing to re-render for.
+    resizeObservers[0].emit({width: 80, height: 20});
     flush();
     expect(builder).toHaveBeenCalledTimes(1);
 
-    resizeObservers[0].emit({width: 10, height: 0});
+    resizeObservers[0].emit({width: 90, height: 20});
     flush();
     expect(builder).toHaveBeenCalledTimes(2);
   });
@@ -315,8 +320,8 @@ describe('withElementSize', () => {
 describe('withVisibility', () => {
   test('renders a placeholder until visibility is known', () => {
     reconcile(container, [
-      withVisibility(visible => h('p', null, visible ? 'seen' : 'hidden'), {
-        placeholder: () => h('em', null, 'unknown'),
+      withVisibility(visible => h('p', visible ? 'seen' : 'hidden'), {
+        placeholder: () => h('em', 'unknown'),
       }),
     ]);
     expect(container.textContent).toBe('unknown');
@@ -327,7 +332,7 @@ describe('withVisibility', () => {
   });
 
   test('gives its own node a box and observes it', () => {
-    reconcile(container, [withVisibility(v => h('p', null, String(v)), {initial: false})]);
+    reconcile(container, [withVisibility(v => h('p', String(v)), {initial: false})]);
     const node = container.firstChild;
     expect(node.style.display).toBe('block');
     expect(intersectionObservers[0].targets[0]).toBe(node);
@@ -335,7 +340,7 @@ describe('withVisibility', () => {
 
   test('accepts a different display', () => {
     reconcile(container, [
-      withVisibility(v => h('p', null, String(v)), {display: 'inline-block', initial: false}),
+      withVisibility(v => h('p', String(v)), {display: 'inline-block', initial: false}),
     ]);
     expect(container.firstChild.style.display).toBe('inline-block');
   });
@@ -345,14 +350,12 @@ describe('withVisibility', () => {
     laidOut.style.display = 'block';
     container.appendChild(laidOut);
 
-    reconcile(laidOut, [
-      withVisibility(v => h('p', null, String(v)), {display: null, initial: false}),
-    ]);
+    reconcile(laidOut, [withVisibility(v => h('p', String(v)), {display: null, initial: false})]);
     expect(intersectionObservers[0].targets[0]).toBe(laidOut);
   });
 
   test('disconnects the observer when detached', () => {
-    reconcile(container, [withVisibility(v => h('p', null, String(v)), {initial: false})]);
+    reconcile(container, [withVisibility(v => h('p', String(v)), {initial: false})]);
     expect(intersectionObservers[0].disconnected).toBe(false);
 
     reconcile(container, null);
@@ -391,8 +394,8 @@ describe('missing observer support', () => {
     console.error = () => {};
     try {
       reconcile(container, [
-        withElementSize(size => h('p', null, String(size.width)), {
-          error: err => h('b', null, err.message),
+        withElementSize(size => h('p', String(size.width)), {
+          error: err => h('b', err.message),
         }),
       ]);
     } finally {

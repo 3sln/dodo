@@ -40,7 +40,7 @@ export default driver => {
       watch(shown, isShown =>
         withPresence(
           isShown,
-          phase => d.div({$classes: ['demo-card']}, d.strong('Phase: '), phase),
+          phase => d.div(d.strong('Phase: '), phase).classes('demo-card'),
           config,
         ),
       ),

@@ -16,6 +16,9 @@ This document outlines guidelines for LLM agents interacting with the `dodo` pro
 - **Adhere to Conventions:** Before making changes, analyze existing code, tests, and documentation to understand and follow established patterns.
 - **Mimic Style:** Match the existing coding style, including formatting, naming, and architectural patterns (vertical growth, explicit blocks).
 - **Test Your Changes:** All modifications to the library must be accompanied by tests.
+- **Tests Run In A Real Browser:** `bun run test` drives the suite through `@web/test-runner` in headless Chromium (`bun run test:coverage` for coverage). Half of what dodo does is only meaningful against a real DOM — focus survival during reordering, `moveBefore`, shadow roots with adopted stylesheets, resize and intersection observers, `Element.animate`, transition durations read off computed style — and an emulator either fakes those or lacks them, so a test passing against one is worth very little. It cost real bugs to learn: the DOM emulator reported every element as 0x0, and `moveBefore` was looked for in a place no browser puts it. Do not reintroduce an emulator.
+- **A Realm Per Test:** `createRealm()` in `test-helpers.js` hands out an iframe — a real document with real layout, its own `Node.prototype` and somewhere to put stubs. Test files shadow `window` and `document` with module-scoped bindings assigned from it, which is what makes a browser suite as isolated as a per-test emulator was. Realms are torn down after every test automatically.
+- **The Assertion Vocabulary Is Deliberate:** `test-helpers.js` exposes nine matchers over chai. It exists so the move to a browser could be read as a change of environment rather than a rewrite of every assertion in the project. Add a matcher when a test needs one; do not convert the suite to a different dialect for its own sake.
 
 ---
 
@@ -25,7 +28,14 @@ This section applies when you are modifying the `dodo` library itself.
 
 ### Core Concepts
 - **Factory Pattern:** The core logic resides in `src/vdom.js`. Be aware of which functions are inside the factory closure (and depend on settings) and which are static helpers outside of it.
-- **`$`-Prefixed Props:** Special props that are intercepted by the `reconcile` function for specific behaviors (like `$classes` or `$styling`) are prefixed with a `$` to avoid collision with standard element properties.
+- **Everything Is Chained:** `h(tag, ...children)` takes children and nothing else. Props live in `vnode.p` via `.props()`; styling, classes, attributes and dataset live in the `$` object via `.style()`, `.classes()`, `.attrs()` and `.data()`. Nothing about an element travels in the argument list, which is why no directive needs a `$` prefix to stay clear of a real property name any more.
+- **Why Not A Props Argument:** In the argument list, props were compared by identity as a member of `args`, so an object literal rebuilt each render — every object literal in a render function — always looked changed and bought a wasted second pass over the element. Chained maps are compared as maps, through the same `shouldUpdate` as everything else, so unchanged contents cost nothing. Do not move props back into `args` for symmetry with `alias`; the asymmetry is the point.
+- **Objects Are Not Text:** `toText` refuses an object that has nothing better than `Object.prototype.toString` to say about itself, because rendering it would put `[object Object]` on the page. It catches a props map left in a child list at any position and any depth, which is what a first-argument check could not do. `typeof` is tested first, so an ordinary string or number pays only that. An object with its own `toString` or `Symbol.toPrimitive` — a `Date`, a `URL` — still renders.
+- **A Failed Reconciliation Leaves Nothing Behind:** `reconcile` claims a target whose `state.vdom` is missing as if it were fresh. A first pass that threw part way through leaves a state with no vdom and nothing attached to preserve, and reading through it would report a null dereference on top of the real error.
+- **One VNode Shape:** `p`, `k`, `hooks` and `$` are all declared in the constructor. Writing a field that already exists is not a shape transition; adding one is, so declaring them up front keeps every vnode monomorphic no matter which setters are chained or in what order.
+- **The `$` Container:** One object rather than four fields, so "did any of these change" is a single identity check for the common node that chains none of them, and nothing is allocated for it. `specialsChanged` then compares facet by facet — comparing the container itself would always report a change, since its values are rebuilt per render.
+- **Placement Closes In From Both Ends:** `placeChildren` matches the desired order against the existing siblings at the head *and* the tail. A single front-to-back cursor cannot get past a child that belongs much later — it parks there while everything that should precede it is moved in front of it one at a time, so swapping the second and second-to-last of a thousand children cost 997 moves where two will do. `bun run bench:ops` in `bench/` counts mutations and will say so immediately if this regresses. The four branches are ordered so that the two "belongs at the other end" cases only ever run with two or more children left unplaced; with one left, head is tail and an earlier branch has already matched.
+- **`shouldUpdate` Looks One Level Down:** Everything a render function builds inline is a fresh object, so comparing the members of an args array or a props map by identity meant an `alias` called as `component({a, b})` — the documented form — never matched its previous arguments and re-rendered every time. `sameNested` opens up *plain objects and arrays only*, bounded by `NESTED_COMPARE_LIMIT`. Do not extend it to same-prototype objects generally: for most other objects the interesting state is not in the own enumerable keys, so a `DOMRect` (which has none) would compare equal to every other rect and a `watch` over an element's size would stop updating. Both levels test `!==` before calling, so identical members cost a comparison and not a call.
 - **Immutability:** The reconciliation process relies on comparing VNode objects. Do not mutate VNodes after creation.
 - **Performance:** The default `shouldUpdate` function performs a shallow comparison on arrays and plain objects to avoid unnecessary reconciliations. Be mindful of the performance implications of any changes.
 - **Hot Path Allocation:** Reconciling one element walks its props, styling, attrs, dataset and hooks. Materialising a `[name, value]` pair per entry for each of those maps, on every update, is the largest single source of garbage in a render: 200 rows of five props over 400 updates grows the heap 77 MB that way versus 14 MB through `mapEach(map, visit, a, b, c)`, which never materialises entries. Visitors are hoisted to the factory closure and take their context through the `a`/`b`/`c` slots, so iterating allocates neither entries nor a closure. Keep new visitors hoisted.
@@ -66,14 +76,27 @@ This section applies when you are using `dodo` to build an application or UI.
 
 ### API Best Practices
 
-- **Use HTML Helpers:** Prefer using the simple HTML helper functions (`div`, `p`, `span`, etc.) for creating VNodes.
-- **`$`-Prefixed Props:** When you need `dodo` to perform special handling for properties, use the `$` prefix. For all other standard element properties (`id`, `className`, `value`, etc.), pass them directly.
-    - `dd.div({ $classes: ['a', 'b'] })`
-    - `dd.p({ $styling: { color: 'blue' } })`
-- **Chained Methods:**
+- **Use HTML Helpers:** Prefer using the simple HTML helper functions (`div`, `p`, `span`, etc.) for creating VNodes. A helper takes children and nothing else; the void elements (`img`, `input`, `link`, `meta`, `area`, `track`, `embed`, `param`, `source`, `col`) take nothing at all.
+- **Chained Methods:** Each returns the VNode, so they compose in any order.
+    - **`.props({ ... })`**: Standard element properties (`id`, `value`, `checked`, etc.), written straight onto the element. Element nodes only.
+    - **`.style({ ... })`**: Inline styles. Element nodes only.
+    - **`.classes(...names)`**: Class names. Nested lists are flattened and blank names are skipped, so `.classes('card', isActive && 'active')` needs no filtering. Element nodes only.
+    - **`.attrs({ ... })`**: Attributes, set with `setAttribute`. Element nodes only.
+    - **`.data({ ... })`**: `dataset` entries. Element nodes only.
     - **`.key(id)`**: Adds a key for list reconciliation. Can be chained onto any VNode.
     - **`.on({ evt: fn })`**: Attaches event listeners or lifecycle hooks. Can be chained onto any VNode.
     - **`.opaque()`**: Marks an element node as opaque, meaning `dodo` will manage its props but not its children. Can only be chained onto element nodes (`h` or helpers).
+    - Every setter replaces rather than merges: calling one twice leaves only the second value.
+    ```javascript
+    dd.div('content')
+      .props({ id: 'card' })
+      .style({ 'background-color': 'white' })
+      .classes('card', isActive && 'active')
+      .data({ cardId: id })
+      .key(id);
+    ```
+- **Component Arguments Are Untouched:** `alias` and `special` components take whatever arguments they were given, so an object first argument is still an ordinary argument there (`todoItem({todo, isEditing})`, `scoped({styleSheets}, children)`). The element setters throw on those vnodes; `.key()` and `.on()` do not.
+- **No Props Argument, No `$` Props:** `h(tag, props, ...)` and the `$styling` / `$classes` / `$attrs` / `$dataset` props are gone, not deprecated. `h()` throws if handed a map where props used to sit. See `MIGRATION.md`.
 
 ### Syntax Clarifications
 
@@ -81,17 +104,18 @@ This section covers common points of confusion in the `dodo` API.
 
 #### 1. Passing Children
 
-Child VNodes are **always** passed as arguments to the helper function, *after* the optional props object. There is no `.children()` method.
+Child VNodes are **always** passed as arguments to the helper function, and they are the *only* arguments it takes. There is no `.children()` method, and no props argument.
 
--   **Correct:** `div({ id: 'parent' }, h1('Title'), p('Content'))`
--   **Incorrect:** `div({ id: 'parent' }).children(h1('Title'), ...)`
+-   **Correct:** `div(h1('Title'), p('Content')).props({ id: 'parent' })`
+-   **Incorrect:** `div({ id: 'parent' }, h1('Title'), p('Content'))`
+-   **Incorrect:** `div().props({ id: 'parent' }).children(h1('Title'), ...)`
 
 #### 2. Styling Properties
 
-When using the `$styling` prop, all CSS property names **must** be snake-cased, as they are in standard CSS. CamelCase will not work.
+When using `.style()`, all CSS property names **must** be kebab-cased, as they are in standard CSS. CamelCase will not work.
 
--   **Correct:** `div({ $styling: { 'margin-bottom': '1em', 'font-size': '16px' } })`
--   **Incorrect:** `div({ $styling: { marginBottom: '1em', fontSize: '16px' } })`
+-   **Correct:** `div().style({ 'margin-bottom': '1em', 'font-size': '16px' })`
+-   **Incorrect:** `div().style({ marginBottom: '1em', fontSize: '16px' })`
 
 #### 3. Chaining Event Handlers
 
@@ -99,16 +123,15 @@ The `.on()` method is chained to the VNode created by a helper function. The chi
 
 -   **Correct:**
     ```javascript
-    div({ id: 'clickable' },
-        'Click me'
-    ).on({
-        click: () => console.log('Clicked!')
-    })
+    div('Click me')
+        .props({ id: 'clickable' })
+        .on({ click: () => console.log('Clicked!') })
     ```
 -   **Incorrect:**
     ```javascript
     // Don't pass children after .on()
-    div({ id: 'clickable' })
+    div()
+        .props({ id: 'clickable' })
         .on({ click: () => console.log('Clicked!') },
             'Click me'
         )

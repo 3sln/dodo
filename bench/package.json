@@ -4,16 +4,21 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "bench:node": "bun run src/node-runner.js",
-    "bench:browser": "vite"
+    "bench": "node run.mjs",
+    "bench:ops": "node run.mjs --ops",
+    "bench:memory": "node run.mjs --memory --ops",
+    "bench:interactive": "vite"
   },
   "dependencies": {
-    "@3sln/dodo": "link:@3sln/dodo",
+    "@3sln/dodo": "file:..",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "vite": "^5.1.0",
-    "happy-dom": "^18.0.1"
+    "playwright": "^1.62.1",
+    "preact": "^10.29.7",
+    "snabbdom": "^3.6.4",
+    "superfine": "^8.2.0",
+    "vite": "^5.1.0"
   }
 }

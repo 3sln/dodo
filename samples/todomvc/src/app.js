@@ -14,36 +14,42 @@ const todoItem = dd.alias(props => {
     }
   };
 
-  return dd
-    .li(
-      {
-        $classes: [todo.completed && 'completed', isEditing && 'editing'].filter(Boolean),
-      },
-      dd.div(
-        {$classes: ['view']},
+  return (
+    dd
+      .li(
         dd
-          .input({$classes: ['toggle'], type: 'checkbox', checked: todo.completed})
-          .on({change: () => store.toggleTodo(todo)}),
-        dd.label(todo.title).on({dblclick: () => store.startEditing(todo)}),
-        dd.button({$classes: ['destroy']}).on({click: () => store.removeTodo(todo)}),
-      ),
-      isEditing &&
-        dd
-          .input({
-            $classes: ['edit'],
-            value: todo.title,
-          })
-          .on({
-            blur: finishEdit,
-            keyup: cancelEdit,
-            keydown: e => {
-              if (e.key === ENTER_KEY) finishEdit(e);
-            },
-            // Use $attach hook to focus the element when it's created
-            $attach: el => el.focus(),
-          }),
-    )
-    .key(todo.id);
+          .div(
+            dd
+              .input()
+              .props({type: 'checkbox', checked: todo.completed})
+              .classes('toggle')
+              .on({change: () => store.toggleTodo(todo)}),
+            dd.label(todo.title).on({dblclick: () => store.startEditing(todo)}),
+            dd
+              .button()
+              .classes('destroy')
+              .on({click: () => store.removeTodo(todo)}),
+          )
+          .classes('view'),
+        isEditing &&
+          dd
+            .input()
+            .props({value: todo.title})
+            .classes('edit')
+            .on({
+              blur: finishEdit,
+              keyup: cancelEdit,
+              keydown: e => {
+                if (e.key === ENTER_KEY) finishEdit(e);
+              },
+              // Use $attach hook to focus the element when it's created
+              $attach: el => el.focus(),
+            }),
+      )
+      // Blank names are skipped, so the conditionals need no filtering.
+      .classes(todo.completed && 'completed', isEditing && 'editing')
+      .key(todo.id)
+  );
 });
 
 const app = dd.alias(props => {
@@ -68,63 +74,62 @@ const app = dd.alias(props => {
     }
   };
 
-  return dd.section(
-    {className: 'todoapp'},
-    dd.header(
-      {className: 'header'},
-      dd.h1('todos'),
+  const filterLink = (href, label, name) =>
+    dd.li(
       dd
-        .input({
-          className: 'new-todo',
-          placeholder: 'What needs to be done?',
-          autofocus: true,
-        })
-        .on({keydown: handleNewTodo}),
-    ),
-    todos.length > 0 &&
-      dd.section(
-        {className: 'main'},
-        dd
-          .input({
-            id: 'toggle-all',
-            className: 'toggle-all',
-            type: 'checkbox',
-            checked: activeCount === 0,
-          })
-          .on({change: e => store.toggleAll(e.target.checked)}),
-        dd.label({htmlFor: 'toggle-all'}, 'Mark all as complete'),
-        dd.ul(
-          {className: 'todo-list'},
-          filteredTodos.map(todo => todoItem({todo, isEditing: editingTodo === todo})),
-        ),
-      ),
-    todos.length > 0 &&
-      dd.footer(
-        {className: 'footer'},
-        dd.span(
-          {className: 'todo-count'},
-          dd.strong(activeCount),
-          ` item${activeCount !== 1 ? 's' : ''} left`,
-        ),
-        dd.ul(
-          {className: 'filters'},
-          dd.li(dd.a({href: '#/all', className: filter === 'all' ? 'selected' : ''}, 'All')),
-          dd.li(
-            dd.a({href: '#/active', className: filter === 'active' ? 'selected' : ''}, 'Active'),
-          ),
-          dd.li(
-            dd.a(
-              {href: '#/completed', className: filter === 'completed' ? 'selected' : ''},
-              'Completed',
-            ),
-          ),
-        ),
-        completedCount > 0 &&
+        .a(label)
+        .props({href})
+        .classes(filter === name && 'selected'),
+    );
+
+  return dd
+    .section(
+      dd
+        .header(
+          dd.h1('todos'),
           dd
-            .button({className: 'clear-completed'}, 'Clear completed')
-            .on({click: () => store.clearCompleted()}),
-      ),
-  );
+            .input()
+            .props({placeholder: 'What needs to be done?', autofocus: true})
+            .classes('new-todo')
+            .on({keydown: handleNewTodo}),
+        )
+        .classes('header'),
+      todos.length > 0 &&
+        dd
+          .section(
+            dd
+              .input()
+              .props({id: 'toggle-all', type: 'checkbox', checked: activeCount === 0})
+              .classes('toggle-all')
+              .on({change: e => store.toggleAll(e.target.checked)}),
+            dd.label('Mark all as complete').props({htmlFor: 'toggle-all'}),
+            dd
+              .ul(filteredTodos.map(todo => todoItem({todo, isEditing: editingTodo === todo})))
+              .classes('todo-list'),
+          )
+          .classes('main'),
+      todos.length > 0 &&
+        dd
+          .footer(
+            dd
+              .span(dd.strong(activeCount), ` item${activeCount !== 1 ? 's' : ''} left`)
+              .classes('todo-count'),
+            dd
+              .ul(
+                filterLink('#/all', 'All', 'all'),
+                filterLink('#/active', 'Active', 'active'),
+                filterLink('#/completed', 'Completed', 'completed'),
+              )
+              .classes('filters'),
+            completedCount > 0 &&
+              dd
+                .button('Clear completed')
+                .classes('clear-completed')
+                .on({click: () => store.clearCompleted()}),
+          )
+          .classes('footer'),
+    )
+    .classes('todoapp');
 });
 
 export default app;

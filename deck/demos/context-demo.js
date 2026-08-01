@@ -10,18 +10,19 @@ export default driver => {
     // Two levels of nesting between the provider and the consumers: neither the
     // section nor the paragraph passes anything down.
     const card = () =>
-      d.section(
-        {$styling: {border: '1px solid #ccc', padding: '1em', 'border-radius': '4px'}},
-        d.p('Nothing on this path passes props. The values come from context.'),
-        useContext(['color', 'label'], ({color, label}) =>
-          d.p({$styling: {color, 'font-weight': 'bold'}}, `consumed: ${label}`),
-        ),
-        // A consumer that asks only for `color` is not re-rendered when `label`
-        // changes.
-        useContext(['color'], ({color}) =>
-          d.div({$styling: {'background-color': color, height: '2em', 'border-radius': '4px'}}),
-        ),
-      );
+      d
+        .section(
+          d.p('Nothing on this path passes props. The values come from context.'),
+          useContext(['color', 'label'], ({color, label}) =>
+            d.p(`consumed: ${label}`).style({color, 'font-weight': 'bold'}),
+          ),
+          // A consumer that asks only for `color` is not re-rendered when
+          // `label` changes.
+          useContext(['color'], ({color}) =>
+            d.div().style({'background-color': color, height: '2em', 'border-radius': '4px'}),
+          ),
+        )
+        .style({border: '1px solid #ccc', padding: '1em', 'border-radius': '4px'});
 
     const state = fromObservable(
       {

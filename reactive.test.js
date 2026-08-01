@@ -1,5 +1,4 @@
-import {test, expect, describe, beforeEach, mock} from 'bun:test';
-import {Window} from 'happy-dom';
+import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
 import reactiveFactory, {
   PENDING,
@@ -16,14 +15,16 @@ import reactiveFactory, {
   toObservable,
 } from './src/reactive.js';
 
+let window;
+let document;
+
 const {h, flush, clear} = dodo;
 const {watch} = reactiveFactory({dodo});
 
 let container;
 
 beforeEach(() => {
-  globalThis.window = new Window();
-  globalThis.document = window.document;
+  ({window, document} = createRealm());
   clear();
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -280,7 +281,7 @@ describe('effect', () => {
 describe('watch', () => {
   test('renders the current value and re-renders on change', () => {
     const name = cell('world');
-    dodo.reconcile(container, [watch(name, v => h('p', null, `hello ${v}`))]);
+    dodo.reconcile(container, [watch(name, v => h('p', `hello ${v}`))]);
     expect(container.textContent).toBe('hello world');
 
     name.setValue('dodo');
@@ -290,7 +291,7 @@ describe('watch', () => {
 
   test('coalesces several invalidations into one render', () => {
     const c = cell(0);
-    const builder = mock(v => h('p', null, String(v)));
+    const builder = mock(v => h('p', String(v)));
     dodo.reconcile(container, [watch(c, builder)]);
     expect(builder).toHaveBeenCalledTimes(1);
 
@@ -305,7 +306,7 @@ describe('watch', () => {
 
   test('skips the render when the value did not actually change', () => {
     const c = cell({a: 1});
-    const builder = mock(v => h('p', null, String(v.a)));
+    const builder = mock(v => h('p', String(v.a)));
     dodo.reconcile(container, [watch(c, builder)]);
     expect(builder).toHaveBeenCalledTimes(1);
 
@@ -323,9 +324,7 @@ describe('watch', () => {
       },
     };
     const c = fromObservable(source);
-    dodo.reconcile(container, [
-      watch(c, v => h('p', null, v), {placeholder: () => h('em', null, 'loading')}),
-    ]);
+    dodo.reconcile(container, [watch(c, v => h('p', v), {placeholder: () => h('em', 'loading')})]);
     expect(container.textContent).toBe('loading');
 
     source.observer.next('ready');
@@ -341,7 +340,7 @@ describe('watch', () => {
       },
     };
     dodo.reconcile(container, [
-      watch(failing, () => h('p', null, 'never'), {error: err => h('b', null, err.message)}),
+      watch(failing, () => h('p', 'never'), {error: err => h('b', err.message)}),
     ]);
     expect(container.textContent).toBe('nope');
   });
@@ -353,7 +352,7 @@ describe('watch', () => {
         throw new Error('kaput');
       },
     };
-    dodo.reconcile(container, [watch(failing, () => h('p', null, 'never'))]);
+    dodo.reconcile(container, [watch(failing, () => h('p', 'never'))]);
     expect(container.textContent).toContain('kaput');
   });
 
@@ -365,7 +364,7 @@ describe('watch', () => {
         () => {
           throw new Error('builder blew up');
         },
-        {error: err => h('b', null, err.message)},
+        {error: err => h('b', err.message)},
       ),
     ]);
     expect(container.textContent).toBe('builder blew up');
@@ -373,7 +372,7 @@ describe('watch', () => {
 
   test('unsubscribes from the cell when detached', () => {
     const c = cell(1);
-    dodo.reconcile(container, [watch(c, v => h('p', null, String(v)))]);
+    dodo.reconcile(container, [watch(c, v => h('p', String(v)))]);
     dodo.reconcile(container, null);
 
     c.setValue(2);
@@ -384,7 +383,7 @@ describe('watch', () => {
   test('switches sources without leaking the old subscription', () => {
     const first = cell('a');
     const second = cell('b');
-    const builder = v => h('p', null, v);
+    const builder = v => h('p', v);
 
     dodo.reconcile(container, [watch(first, builder)]);
     expect(container.textContent).toBe('a');
@@ -398,7 +397,7 @@ describe('watch', () => {
   });
 
   test('accepts a plain value as its source', () => {
-    dodo.reconcile(container, [watch('static', v => h('p', null, v))]);
+    dodo.reconcile(container, [watch('static', v => h('p', v))]);
     expect(container.textContent).toBe('static');
   });
 });

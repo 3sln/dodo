@@ -56,8 +56,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The suite runs in a real browser, so one has to be there to run it in.
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
       - name: Test
-        run: bun test
+        run: bun run test
 
       - name: Show what will be published
         run: npm pack --dry-run
