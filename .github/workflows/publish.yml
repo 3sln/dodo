@@ -3,8 +3,8 @@ name: Publish to npm
 # Publishing a release (draft or otherwise) creates its tag and publishes the
 # package. Tests run first, so a red build cannot reach the registry.
 #
-# Requires an `NPM_TOKEN` repository secret — an npm automation token with
-# publish rights on the @3sln scope.
+# Uses npm trusted publishing (OIDC). Configure 3sln/dodo and publish.yml as
+# the package's GitHub Actions trusted publisher; no environment or token secret.
 
 on:
   release:
@@ -27,18 +27,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the released tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.release.tag_name }}
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
+          package-manager-cache: false
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
 
       - name: Check the tag matches package.json
         env:
@@ -66,10 +66,10 @@ jobs:
       - name: Show what will be published
         run: npm pack --dry-run
 
+      # Node 24 supplies npm >=11.5.1, which can authenticate through OIDC.
+      # Do not install a registry-url auth-token placeholder or NODE_AUTH_TOKEN.
       - name: Publish
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Summarise
         env:

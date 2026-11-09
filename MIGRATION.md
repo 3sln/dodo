@@ -101,3 +101,17 @@ DOM properties and Dodo's directives. The `$` prefix existed only to keep
 `$classes` from colliding with a real property named `classes`. With the
 directives on the vnode and the properties in `.props()`, nothing collides and
 nothing needs a prefix.
+
+## Cell readiness
+
+New cells should implement `hasValue() -> boolean` alongside `onDirty` and
+`getValue`. Readiness changes must invalidate listeners. Consumers skip reads
+while the hook returns false, and treat every ready value as data.
+
+`PENDING` is deprecated and remains recognized only on legacy cells that lack
+`hasValue()`. Built-in cells use the hook and return undefined before they have a
+value. Do not compare their `getValue()` result to `PENDING`; use `hasValue()`.
+In particular, `cell(PENDING)` is now a ready cell containing the symbol. Adapted
+subscriptions and intersection cells start unavailable when `initial` is omitted,
+but `{initial: undefined}` is explicitly ready. Failed sources should throw from
+readiness checks or return true so `getValue()` can throw.

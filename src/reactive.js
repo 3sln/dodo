@@ -6,10 +6,11 @@
  *
  * Everything here is built on one small protocol, the **Cell**:
  *
- *     { onDirty(fn) -> unsubscribe, getValue() -> any }
+ *     { onDirty(fn) -> unsubscribe, getValue() -> any, hasValue?() -> boolean }
  *
  * `onDirty` registers a callback that fires when the value *may* have changed,
- * and `getValue` pulls the current value. That is the whole contract. It is
+ * and `getValue` pulls the current value. Optional `hasValue()` reports whether
+ * a value is available, independently of what that value is. It is
  * deliberately push-to-invalidate / pull-to-read: dodo can coalesce any number
  * of invalidations into a single render and then read once.
  *
@@ -18,18 +19,18 @@
  * common shapes (RxJS-style observables, callback subscriptions such as Svelte
  * stores, and preact signals respectively).
  *
- * Two values are special:
- *   - `PENDING` means "no value yet"; `watch` renders its placeholder instead
- *     of calling the builder.
- *   - An error is reported by *throwing* from `getValue()`; `watch` catches it
- *     and renders its error view.
+ * `hasValue() === false` makes `watch` render its placeholder without reading
+ * the value. Errors are reported by throwing from `getValue()` or `hasValue()`.
+ * Cells without the hook retain the deprecated `PENDING` fallback.
  */
 
 import {settings as resolveSettings} from './settings.js';
 
+/** @deprecated Implement hasValue() instead. Only legacy cells without the hook interpret this value as pending. */
 export const PENDING = Symbol('dodo.reactive.PENDING');
 
 const NOTHING = Symbol('dodo.reactive.NOTHING');
+const UNAVAILABLE = Symbol('dodo.reactive.UNAVAILABLE');
 
 /** Duck-types a Cell. Anything with both methods qualifies. */
 export function isCell(value) {
@@ -41,6 +42,22 @@ export function isCell(value) {
 /** Reads a Cell, passing plain values straight through. */
 export function readCell(value) {
   return isCell(value) ? value.getValue() : value;
+}
+
+// Availability is an independent part of the protocol. In particular, a
+// hook-aware cell can hold undefined or even the deprecated symbol as data.
+function hasCellValue(source) {
+  if (!isCell(source)) return true;
+  return typeof source.hasValue === 'function' ? source.hasValue() : source.getValue() !== PENDING;
+}
+
+function pull(source) {
+  if (!isCell(source)) return source;
+  if (typeof source.hasValue === 'function') {
+    return source.hasValue() ? source.getValue() : UNAVAILABLE;
+  }
+  const value = source.getValue();
+  return value === PENDING ? UNAVAILABLE : value;
 }
 
 function toUnsubscribe(subscription) {
@@ -82,7 +99,8 @@ export function notifier() {
  *
  * `connect` receives a `notify` callback and returns either an unsubscribe
  * function or `{unsubscribe}`. `read` supplies `getValue`, and should cope with
- * being called while disconnected.
+ * being called while disconnected. The optional third callback supplies
+ * `hasValue()` and defaults to always ready.
  *
  *     const online = connectable(
  *       notify => {
@@ -96,7 +114,7 @@ export function notifier() {
  *       () => navigator.onLine,
  *     );
  */
-export function connectable(connect, read) {
+export function connectable(connect, read, hasValue = () => true) {
   const {listeners, notify} = notifier();
   let disconnect = null;
 
@@ -128,6 +146,9 @@ export function connectable(connect, read) {
     getValue() {
       return read();
     },
+    hasValue() {
+      return hasValue();
+    },
   };
 }
 
@@ -151,6 +172,9 @@ export function cell(initialValue) {
     getValue() {
       return value;
     },
+    hasValue() {
+      return true;
+    },
     setValue(newValue) {
       if (Object.is(newValue, value)) return;
       value = newValue;
@@ -171,6 +195,9 @@ export function constant(value) {
     getValue() {
       return value;
     },
+    hasValue() {
+      return true;
+    },
   };
 }
 
@@ -181,8 +208,8 @@ export function constant(value) {
  *
  * The result is memoised while subscribed: `compute` runs on the first read
  * after an upstream invalidation and not again until the next one. If any
- * dependency is `PENDING` the derived cell is `PENDING` too and `compute` is
- * not called at all.
+ * dependency has no value, the derived cell has none either and `compute` is
+ * not called at all. `hasValue()` checks readiness without running `compute`.
  */
 export function derive(dependencies, compute) {
   const deps = Array.isArray(dependencies) ? dependencies : [dependencies];
@@ -198,8 +225,8 @@ export function derive(dependencies, compute) {
   const recompute = () => {
     const values = new Array(deps.length);
     for (let i = 0; i < deps.length; i++) {
-      const value = readCell(deps[i]);
-      if (value === PENDING) return PENDING;
+      const value = pull(deps[i]);
+      if (value === UNAVAILABLE) return UNAVAILABLE;
       values[i] = value;
     }
     return compute(...values);
@@ -230,7 +257,10 @@ export function derive(dependencies, compute) {
       if (cached === NOTHING || !unsubscribes) {
         cached = recompute();
       }
-      return cached;
+      return cached === UNAVAILABLE ? undefined : cached;
+    },
+    hasValue() {
+      return deps.every(hasCellValue);
     },
   };
 }
@@ -244,11 +274,11 @@ export function mapCell(source, fn) {
  * Adapts an observer-style observable: `subscribe({next, error, complete})`,
  * as produced by RxJS, the TC39 proposal, and bones' own `Observable`.
  *
- * The cell reports `PENDING` until the first emission unless `initial` is
- * given, and rethrows from `getValue()` if the source errors.
+ * The cell has no value until the first emission unless `initial` is supplied
+ * (even explicit undefined). Errors are thrown from reads and readiness checks.
  */
-export function fromObservable(observable, {initial = PENDING} = {}) {
-  return fromSource(observable, {initial}, (source, handlers) =>
+export function fromObservable(observable, options = {}) {
+  return fromSource(observable, options, (source, handlers) =>
     source.subscribe({
       next: handlers.next,
       error: handlers.error,
@@ -262,15 +292,16 @@ export function fromObservable(observable, {initial = PENDING} = {}) {
  * either an unsubscribe function or `{unsubscribe}`. This covers Svelte stores,
  * preact signals' own `.subscribe`, and most hand-rolled stores.
  */
-export function fromSubscribe(subscribable, {initial = PENDING} = {}) {
-  return fromSource(subscribable, {initial}, (source, handlers) => {
+export function fromSubscribe(subscribable, options = {}) {
+  return fromSource(subscribable, options, (source, handlers) => {
     const subscribe = typeof source === 'function' ? source : source.subscribe.bind(source);
     return subscribe(handlers.next);
   });
 }
 
-function fromSource(source, {initial}, subscribe) {
-  let value = initial;
+function fromSource(source, options, subscribe) {
+  let value = options.initial;
+  let received = Object.hasOwn(options, 'initial');
   let failure = NOTHING;
 
   const cellApi = connectable(
@@ -278,6 +309,7 @@ function fromSource(source, {initial}, subscribe) {
       const handlers = {
         next(newValue) {
           value = newValue;
+          received = true;
           failure = NOTHING;
           notify();
         },
@@ -292,6 +324,10 @@ function fromSource(source, {initial}, subscribe) {
     () => {
       if (failure !== NOTHING) throw failure;
       return value;
+    },
+    () => {
+      if (failure !== NOTHING) throw failure;
+      return received;
     },
   );
 
@@ -353,12 +389,12 @@ export function toObservable(source) {
       const emit = () => {
         let value;
         try {
-          value = readCell(source);
+          value = pull(source);
         } catch (err) {
           observer.error?.(err);
           return;
         }
-        if (value !== PENDING) observer.next?.(value);
+        if (value !== UNAVAILABLE) observer.next?.(value);
       };
       const unsubscribe = isCell(source) ? source.onDirty(emit) : () => {};
       emit();
@@ -376,12 +412,12 @@ export function effect(source, fn) {
   const run = () => {
     let value;
     try {
-      value = readCell(source);
+      value = pull(source);
     } catch (err) {
       console.error('Error reading cell in effect:', err);
       return;
     }
-    if (value === PENDING) return;
+    if (value === UNAVAILABLE) return;
     fn(value);
   };
   const unsubscribe = isCell(source) ? source.onDirty(run) : () => {};
@@ -483,7 +519,7 @@ export default function reactiveFactory(userSettings) {
 
       let value;
       try {
-        value = readCell(state.source === NOTHING ? undefined : state.source);
+        value = pull(state.source === NOTHING ? undefined : state.source);
       } catch (err) {
         this.renderError(element, err);
         return;
@@ -502,7 +538,7 @@ export default function reactiveFactory(userSettings) {
       state.lastBuilder = state.builder;
 
       try {
-        if (value === PENDING) {
+        if (value === UNAVAILABLE) {
           reconcile(element, state.placeholder ? [state.placeholder()] : []);
         } else {
           reconcile(element, [state.builder(value)]);

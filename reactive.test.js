@@ -4,6 +4,7 @@ import reactiveFactory, {
   PENDING,
   cell,
   constant,
+  connectable,
   derive,
   effect,
   fromObservable,
@@ -92,11 +93,12 @@ describe('derive', () => {
     expect(d.getValue()).toBe(12);
   });
 
-  test('propagates PENDING without calling compute', () => {
+  test('propagates legacy pending readiness without calling compute', () => {
     const compute = mock(x => x);
     const pending = {onDirty: () => () => {}, getValue: () => PENDING};
     const d = derive([pending], compute);
-    expect(d.getValue()).toBe(PENDING);
+    expect(d.hasValue()).toBe(false);
+    expect(d.getValue()).toBeUndefined();
     expect(compute).not.toHaveBeenCalled();
   });
 
@@ -151,11 +153,12 @@ describe('observable adaptors', () => {
     expect(source.observerCount).toBe(0);
   });
 
-  test('fromObservable reports PENDING before the first value', () => {
+  test('fromObservable has no value before the first emission', () => {
     const source = subject(undefined);
     const c = fromObservable(source);
     c.onDirty(() => {});
-    expect(c.getValue()).toBe(PENDING);
+    expect(c.hasValue()).toBe(false);
+    expect(c.getValue()).toBeUndefined();
   });
 
   test('fromObservable rethrows source errors from getValue', () => {
@@ -316,7 +319,7 @@ describe('watch', () => {
     expect(builder).toHaveBeenCalledTimes(1);
   });
 
-  test('renders the placeholder while PENDING', () => {
+  test('renders the placeholder while no value is available', () => {
     const source = {
       subscribe(observer) {
         this.observer = observer;
@@ -399,5 +402,183 @@ describe('watch', () => {
   test('accepts a plain value as its source', () => {
     dodo.reconcile(container, [watch('static', v => h('p', v))]);
     expect(container.textContent).toBe('static');
+  });
+});
+
+describe('value availability', () => {
+  function sourceCell() {
+    const listeners = new Set();
+    return {
+      ready: false,
+      value: undefined,
+      onDirty(fn) {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+      hasValue() {
+        return this.ready;
+      },
+      getValue() {
+        if (!this.ready) throw new Error('must not read an unavailable cell');
+        return this.value;
+      },
+      set(ready, value) {
+        this.ready = ready;
+        this.value = value;
+        for (const fn of listeners) fn();
+      },
+    };
+  }
+
+  test('writable, constant, connectable and signal cells expose readiness without reserving values', () => {
+    for (const value of [undefined, null, false, 0, '', PENDING]) {
+      const cells = [
+        cell(value),
+        constant(value),
+        connectable(
+          () => () => {},
+          () => value,
+        ),
+        fromSignal({peek: () => value}),
+      ];
+      for (const c of cells) {
+        expect(c.hasValue()).toBe(true);
+        expect(c.getValue()).toBe(value);
+      }
+    }
+  });
+
+  test('derive checks readiness without computing or reading unavailable sources', () => {
+    const source = sourceCell();
+    const compute = mock(value => value);
+    const derived = derive([source], compute);
+    expect(derived.hasValue()).toBe(false);
+    expect(derived.getValue()).toBeUndefined();
+    expect(compute).not.toHaveBeenCalled();
+    source.set(true, undefined);
+    expect(derived.hasValue()).toBe(true);
+    expect(compute).not.toHaveBeenCalled();
+    expect(derived.getValue()).toBeUndefined();
+    source.set(true, PENDING);
+    expect(derived.hasValue()).toBe(true);
+    expect(derived.getValue()).toBe(PENDING);
+  });
+
+  test('watch distinguishes pending from ready undefined and respects the hook over PENDING', () => {
+    const source = sourceCell();
+    const builder = mock(value => h('p', value === PENDING ? 'symbol payload' : String(value)));
+    dodo.reconcile(container, [watch(source, builder, {placeholder: () => h('em', 'loading')})]);
+    expect(container.textContent).toBe('loading');
+    expect(builder).not.toHaveBeenCalled();
+    source.set(true, undefined);
+    flush();
+    expect(container.textContent).toBe('undefined');
+    source.set(false, undefined);
+    flush();
+    expect(container.textContent).toBe('loading');
+    source.set(true, PENDING);
+    flush();
+    expect(container.textContent).toBe('symbol payload');
+  });
+
+  test('effect and observable skip unavailable values and pass through all ready values', () => {
+    const source = sourceCell();
+    const effects = [];
+    const emissions = [];
+    const stop = effect(source, value => effects.push(value));
+    const sub = toObservable(source).subscribe(value => emissions.push(value));
+    expect(effects).toEqual([]);
+    expect(emissions).toEqual([]);
+    source.set(true, undefined);
+    source.set(false, undefined);
+    source.set(true, PENDING);
+    source.set(true, false);
+    expect(effects).toEqual([undefined, PENDING, false]);
+    expect(emissions).toEqual(effects);
+    stop();
+    sub.unsubscribe();
+  });
+
+  test('legacy cells retain the sentinel fallback across every consumer', () => {
+    const source = sourceCell();
+    delete source.hasValue;
+    source.ready = true;
+    source.value = PENDING;
+    const compute = mock(value => value);
+    const derived = derive([source], compute);
+    const effects = [];
+    const emissions = [];
+    const stop = effect(derived, value => effects.push(value));
+    const sub = toObservable(source).subscribe(value => emissions.push(value));
+    dodo.reconcile(container, [
+      watch(source, value => h('p', String(value)), {placeholder: () => h('em', 'legacy loading')}),
+    ]);
+    expect(derived.hasValue()).toBe(false);
+    expect(compute).not.toHaveBeenCalled();
+    expect(container.textContent).toBe('legacy loading');
+    source.set(true, undefined);
+    flush();
+    expect(derived.hasValue()).toBe(true);
+    expect(container.textContent).toBe('undefined');
+    expect(effects).toEqual([undefined]);
+    expect(emissions).toEqual([undefined]);
+    source.set(true, PENDING);
+    flush();
+    expect(container.textContent).toBe('legacy loading');
+    expect(derived.hasValue()).toBe(false);
+    expect(effects).toEqual([undefined]);
+    stop();
+    sub.unsubscribe();
+  });
+
+  test('adapter initial presence and emissions determine availability, including undefined and PENDING', () => {
+    for (const adapt of [
+      options =>
+        fromObservable(
+          {
+            subscribe() {
+              return () => {};
+            },
+          },
+          options,
+        ),
+      options => fromSubscribe(() => () => {}, options),
+    ]) {
+      expect(adapt().hasValue()).toBe(false);
+      expect(adapt({initial: undefined}).hasValue()).toBe(true);
+      expect(adapt({initial: PENDING}).hasValue()).toBe(true);
+    }
+    let observer;
+    const source = fromObservable({
+      subscribe(next) {
+        observer = next;
+        return () => {};
+      },
+    });
+    const stop = source.onDirty(() => {});
+    observer.next(undefined);
+    expect(source.hasValue()).toBe(true);
+    observer.error(new Error('failed'));
+    expect(() => source.hasValue()).toThrow('failed');
+    expect(() => source.getValue()).toThrow('failed');
+    observer.next(PENDING);
+    expect(source.hasValue()).toBe(true);
+    expect(source.getValue()).toBe(PENDING);
+    stop();
+  });
+
+  test('errors in readiness reach watch and observable error handlers', () => {
+    const source = sourceCell();
+    source.hasValue = () => {
+      throw new Error('readiness failed');
+    };
+    const errors = [];
+    const sub = toObservable(source).subscribe({error: error => errors.push(error.message)});
+    dodo.reconcile(container, [
+      watch(source, () => h('p', 'never'), {error: error => h('b', error.message)}),
+    ]);
+    expect(container.textContent).toBe('readiness failed');
+    expect(errors).toEqual(['readiness failed']);
+    sub.unsubscribe();
   });
 });
