@@ -213,3 +213,20 @@ describe('readContext', () => {
     expect(readContext(leaf, ['a'])).toEqual({a: 1});
   });
 });
+
+test('context cells expose readiness even when no provider supplies a value', () => {
+  const {watch} = reactiveFactory({dodo});
+  let source;
+  const api = contextFactory({
+    dodo,
+    reactive: {
+      watch(cell, ...args) {
+        source = cell;
+        return watch(cell, ...args);
+      },
+    },
+  });
+  reconcile(container, [api.useContext(['missing'], value => h('p', String(value.missing)))]);
+  expect(source.hasValue()).toBe(true);
+  expect(source.getValue()).toEqual({missing: undefined});
+});

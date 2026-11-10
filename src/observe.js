@@ -21,7 +21,7 @@
 
 // Only pure helpers are imported: the reactive API these components render
 // through is injected, not reached for.
-import {PENDING, connectable} from './reactive.js';
+import {connectable} from './reactive.js';
 import {settings as resolveSettings} from './settings.js';
 import {requireConstructor, windowFor} from './dom.js';
 
@@ -84,7 +84,7 @@ function measure(element) {
  * changed — every observer callback would re-render. A plain object is shallow
  * compared, so a resize that does not change the box renders nothing.
  *
- * Never `PENDING`: with no observation to hand it measures directly, so there
+ * Always has a value: with no observation to hand it measures directly, so there
  * is no "not known yet" state for callers to handle.
  *
  * | option   | meaning                                                     |
@@ -120,8 +120,10 @@ export function elementSize(element, options = {}) {
 }
 
 function intersectionCell(element, options, select) {
-  const {root, rootMargin, threshold, initial = PENDING, window: override} = options;
+  const {root, rootMargin, threshold, initial, window: override} = options;
+  const initialized = Object.hasOwn(options, 'initial');
   let latest = initial;
+  let received = initialized;
 
   return connectable(
     notify => {
@@ -133,6 +135,7 @@ function intersectionCell(element, options, select) {
       const observer = new IntersectionObserverCtor(
         entries => {
           latest = select(entries[entries.length - 1]);
+          received = true;
           notify();
         },
         {root: rootElement, rootMargin, threshold},
@@ -141,16 +144,18 @@ function intersectionCell(element, options, select) {
       return () => {
         observer.disconnect();
         latest = initial;
+        received = initialized;
       };
     },
     () => latest,
+    () => received,
   );
 }
 
 /**
  * A Cell over whether an element intersects its root.
  *
- * `PENDING` until the observer delivers its first entry — that arrives
+ * `hasValue()` is false until the observer delivers its first entry — that arrives
  * asynchronously and there is no synchronous way to know beforehand. Reporting
  * `false` would be a guess, and a wrong one shows the wrong branch for a frame;
  * pair it with `watch`'s `placeholder`, or pass `{initial: false}` to accept the
@@ -161,7 +166,7 @@ function intersectionCell(element, options, select) {
  * | `root`       | a selector resolved with `closest`, an element, or null    |
  * | `rootMargin` | passed through to `IntersectionObserver`                   |
  * | `threshold`  | passed through to `IntersectionObserver`                   |
- * | `initial`    | value before the first entry, `PENDING` by default         |
+ * | `initial`    | value before the first entry; otherwise unavailable         |
  * | `window`     | override the realm the observer is taken from              |
  */
 export function elementVisibility(element, options = {}) {
@@ -226,7 +231,7 @@ export default function observeFactory(userSettings) {
       const state = element[SIZE_STATE];
       if (!state) return;
       const cell = cellFor(element, state, options, elementSize);
-      // `options` carries `error` through to `watch`. A size is never PENDING,
+      // `options` carries `error` through to `watch`. A size always has a value,
       // so `placeholder` has nothing to do here.
       reconcile(element, [watch(cell, builder, options)]);
     },

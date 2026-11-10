@@ -61,10 +61,10 @@ so they cost nothing if you do not use them.
 
 ### Reactivity — `@3sln/dodo/reactive`
 
-Reactive rendering built on a two method `Cell` protocol:
+Reactive rendering built on a small `Cell` protocol with a readiness hook:
 
 ```javascript
-{ onDirty(fn) -> unsubscribe, getValue() -> any }
+{ onDirty(fn) -> unsubscribe, getValue() -> any, hasValue?() -> boolean }
 ```
 
 Dodo does not depend on the observable protocol, on signals, or on any other
@@ -167,3 +167,30 @@ const userSettings = {dodo: myDodo, schedule: fn => fn()};
 const {watch} = reactive(userSettings);
 const {withContext, useContext} = context({...userSettings, reactive: {watch}});
 ```
+
+### Cell readiness
+
+Built-in cells expose `hasValue()` separately from `getValue()`. A false result
+means no value is available yet; an emitted `undefined` is a ready value. `watch`,
+`derive`, `effect`, and `toObservable` check readiness before reading, without a
+shared sentinel or adapter configuration. Cells without the hook still support
+the deprecated `PENDING` fallback. See [the cell protocol](deck/reactive.md).
+
+### Publishing
+
+Bumping the package version on `main` prepares a draft GitHub release. Publishing
+the draft triggers `.github/workflows/publish.yml`, reruns the browser tests,
+checks the tag against `package.json`, and publishes with npm provenance through
+[trusted publishing](https://docs.npmjs.com/trusted-publishers/). No npm token
+secret is used.
+
+Configure the npm trusted publisher for `@3sln/dodo` as:
+
+- Provider: GitHub Actions
+- Organization/user: `3sln`
+- Repository: `dodo`
+- Workflow filename: `publish.yml`
+- Environment: leave blank (the workflow does not use an environment)
+
+The workflow uses Node 24 and npm's OIDC authentication. A PR or version bump
+alone does not publish a package.

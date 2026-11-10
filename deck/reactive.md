@@ -12,24 +12,35 @@ Everything in this module is built on one small interface:
 ```javascript
 {
   onDirty(fn) -> unsubscribe,  // fn is called when the value may have changed
-  getValue()  -> any           // the current value
+  getValue()  -> any,         // the current value
+  hasValue?() -> boolean     // false until a value is available
 }
 ```
 
-That is the whole contract. It is deliberately *push to invalidate, pull to
-read*: a source announces that something changed, and dodo decides when to
+The readiness hook is optional for legacy cells and present on all built-in
+cells. It is deliberately _push to invalidate, pull to
+read_: a source announces that something changed, and dodo decides when to
 actually read it. That split is what lets a burst of updates collapse into a
 single render.
 
 Dodo does not depend on the observable protocol, on signals, or on any other
 library. It depends on this. Adapters bridge the rest.
 
-Two values carry special meaning:
+`hasValue() === false` means no value is available yet. `watch` renders its
+placeholder without calling `getValue()` or the builder. When the hook returns
+true, every value is data, including `undefined`, `null`, `false`, and symbols.
+A source must notify `onDirty` listeners when readiness changes, even if its
+stored value stays the same.
 
-- `PENDING` — no value yet. `watch` renders its placeholder instead of calling
-  your builder.
-- An error is reported by **throwing from `getValue()`**. `watch` catches it and
-  renders its error view.
+Errors are reported by **throwing from `getValue()` or `hasValue()`**. `watch`
+catches them and renders its error view. A failed source should throw from its
+readiness check or return true so its throwing `getValue()` is reached; returning
+false denotes waiting, not failure.
+
+`PENDING` is deprecated. Cells **without** `hasValue()` retain the old fallback:
+a returned `PENDING` means unavailable; every other value, including undefined,
+is ready. A hook-aware cell returning `PENDING` treats it as ordinary data.
+There is no shared sentinel to import, configure, or pass between libraries.
 
 ## Sources
 
@@ -42,7 +53,7 @@ import {cell} from '@3sln/dodo/reactive';
 
 const count = cell(0);
 
-count.getValue();       // 0
+count.getValue(); // 0
 count.setValue(5);
 count.update(n => n + 1);
 ```
@@ -51,8 +62,9 @@ count.update(n => n + 1);
 
 A read-only cell computed from other cells (plain values are allowed too). The
 result is memoised while something is subscribed, so `compute` runs once per
-upstream change rather than once per read. If any dependency is `PENDING` the
-derived cell is `PENDING` and `compute` is not called at all.
+upstream change rather than once per read. If any dependency has no value,
+`derived.hasValue()` returns false and `compute` is not called. Its `getValue()`
+returns undefined in that state. Checking readiness never runs `compute`.
 
 ```javascript
 const price = cell(10);
@@ -79,10 +91,10 @@ name.setValue('dodo'); // re-renders on the next frame
 `watch(source, builder, options?)` takes any cell — or a plain value, which it
 renders once. Options:
 
-| option        | meaning                                                        |
-| ------------- | -------------------------------------------------------------- |
-| `placeholder` | `() => vnode` rendered while the source is `PENDING`            |
-| `error`       | `(error) => vnode` rendered when `getValue` or `builder` throws |
+| option        | meaning                                                                     |
+| ------------- | --------------------------------------------------------------------------- |
+| `placeholder` | `() => vnode` rendered while the source has no value                        |
+| `error`       | `(error) => vnode` rendered when readiness, `getValue`, or `builder` throws |
 
 Renders are scheduled through dodo's scheduler, so several changes in the same
 tick produce one render. A change that leaves the value equal (by the instance's
@@ -109,6 +121,12 @@ const user = fromObservable(user$);
 
 watch(user, u => p(u.name), {placeholder: () => p('loading…')});
 ```
+
+Both subscription adapters start without a value unless an `initial` property
+is supplied. `{initial: undefined}` is an explicitly ready value, as is any first
+emission of undefined. Errors surface through reads and readiness checks. They
+retain the last observed value after disconnecting; reconnecting subscribes lazily
+again.
 
 ### `fromSubscribe(subscribable, {initial})`
 
@@ -143,12 +161,15 @@ function fromMediaQuery(query) {
       return () => list.removeEventListener('change', fn);
     },
     getValue: () => list.matches,
+    hasValue: () => true,
   };
 }
 ```
 
 `notifier()` is exported for cases where you need to fan out to several
-listeners yourself.
+listeners yourself. `connectable(connect, read, hasValue?)` provides lazy
+connection management; its optional third callback supplies readiness and defaults
+to always ready. `cell(undefined)` and `constant(undefined)` are ready too.
 
 ## Going the other way
 
@@ -156,7 +177,8 @@ listeners yourself.
 - `effect(cell, fn)` runs `fn` with the value now and on every change, returning
   a dispose function. Use it for work that is not rendering — persistence,
   logging, imperative DOM.
-- `readCell(x)` reads a cell and passes plain values straight through.
+- `readCell(x)` is a raw value read, passing plain values straight through. Check
+  `hasValue()` first if an unavailable source cannot be read yet.
 - `isCell(x)` duck-types the protocol.
 
 ## Baking your own
@@ -177,7 +199,7 @@ const {withContext, useContext} = context({...userSettings, reactive: reactiveAp
 ```
 
 Build the reactive API **once** and inject it where it is needed. Every call to
-`reactive` produces a new `watch`, and a `special` component's identity *is* its
+`reactive` produces a new `watch`, and a `special` component's identity _is_ its
 descriptor object — the reconciler uses that identity to decide whether a DOM
 node can be reused, so two separately built `watch` components would never reuse
 each other's nodes.
@@ -185,11 +207,11 @@ each other's nodes.
 `context` requires the injection rather than falling back to a private copy,
 precisely so that mistake cannot happen quietly.
 
-| setting       | default                                     |
-| ------------- | ------------------------------------------- |
-| `dodo`        | required                                     |
-| `schedule`    | the instance's `schedule`                    |
-| `renderError` | a `<pre>` with the message and stack         |
+| setting       | default                              |
+| ------------- | ------------------------------------ |
+| `dodo`        | required                             |
+| `schedule`    | the instance's `schedule`            |
+| `renderError` | a `<pre>` with the message and stack |
 
 Map handling and change detection are not settings here — they always come from
 the dodo instance, since a module that disagreed with its renderer about what a
@@ -209,10 +231,13 @@ Replace `schedule` to change that:
 reactive({dodo, schedule: fn => fn()});
 
 // Render when the browser is idle.
-reactive({dodo, schedule: (fn, {signal} = {}) => {
-  const id = requestIdleCallback(() => fn());
-  signal?.addEventListener('abort', () => cancelIdleCallback(id));
-}});
+reactive({
+  dodo,
+  schedule: (fn, {signal} = {}) => {
+    const id = requestIdleCallback(() => fn());
+    signal?.addEventListener('abort', () => cancelIdleCallback(id));
+  },
+});
 ```
 
 A `schedule` implementation receives `(fn, {signal})` and should not run `fn`

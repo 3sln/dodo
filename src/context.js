@@ -173,6 +173,9 @@ export default function contextFactory(userSettings) {
           }
         };
       },
+      hasValue() {
+        return true;
+      },
       getValue() {
         const chain = collectProviders(element);
         const merged = chain.length === 0 ? newMap({}) : mapMerge(...chain.map(p => p.data));

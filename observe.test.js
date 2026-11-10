@@ -1,6 +1,6 @@
 import {test, expect, describe, beforeEach, mock, createRealm} from './test-helpers.js';
 import * as dodo from './index.js';
-import reactiveFactory, {PENDING} from './src/reactive.js';
+import reactiveFactory from './src/reactive.js';
 import observeFactory, {
   elementIntersection,
   elementSize,
@@ -119,7 +119,7 @@ describe('elementSize', () => {
     // The element's real border box, read straight off the layout.
     expect(size.getValue()).toEqual({width: 120, height: 40});
     // Never pending: a size is always knowable.
-    expect(size.getValue()).not.toBe(PENDING);
+    expect(size.hasValue()).toBe(true);
   });
 
   test('connects on the first listener and disconnects on the last', () => {
@@ -193,16 +193,18 @@ describe('elementVisibility', () => {
     container.appendChild(target);
   });
 
-  test('is PENDING until the first entry arrives', () => {
+  test('has no value until the first entry arrives', () => {
     const visible = elementVisibility(target);
     visible.onDirty(() => {});
-    expect(visible.getValue()).toBe(PENDING);
+    expect(visible.hasValue()).toBe(false);
+    expect(visible.getValue()).toBeUndefined();
 
     intersectionObservers[0].emit(true);
+    expect(visible.hasValue()).toBe(true);
     expect(visible.getValue()).toBe(true);
   });
 
-  test('accepts an initial value instead of PENDING', () => {
+  test('accepts an initial value before observing', () => {
     const visible = elementVisibility(target, {initial: false});
     visible.onDirty(() => {});
     expect(visible.getValue()).toBe(false);
@@ -229,11 +231,13 @@ describe('elementVisibility', () => {
     const visible = elementVisibility(target);
     const unsubscribe = visible.onDirty(() => {});
     intersectionObservers[0].emit(true);
+    expect(visible.hasValue()).toBe(true);
     expect(visible.getValue()).toBe(true);
 
     unsubscribe();
     expect(intersectionObservers[0].disconnected).toBe(true);
-    expect(visible.getValue()).toBe(PENDING);
+    expect(visible.hasValue()).toBe(false);
+    expect(visible.getValue()).toBeUndefined();
   });
 
   test('elementIntersection reports the ratio too', () => {
@@ -419,4 +423,21 @@ describe('missing observer support', () => {
     size.onDirty(() => {});
     expect(resizeObservers.length).toBe(1);
   });
+});
+
+test('visibility with explicit undefined is ready and restores initial readiness on reconnect', () => {
+  const target = document.createElement('div');
+  container.appendChild(target);
+  const visible = elementVisibility(target, {initial: undefined});
+  expect(visible.hasValue()).toBe(true);
+  const stop = visible.onDirty(() => {});
+  intersectionObservers[0].emit(false);
+  expect(visible.hasValue()).toBe(true);
+  expect(visible.getValue()).toBe(false);
+  stop();
+  expect(visible.hasValue()).toBe(true);
+  expect(visible.getValue()).toBeUndefined();
+  const reconnect = visible.onDirty(() => {});
+  expect(visible.hasValue()).toBe(true);
+  reconnect();
 });

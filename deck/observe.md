@@ -17,7 +17,7 @@ feed them into `derive`, ignore the components entirely.
 import {elementSize} from '@3sln/dodo/observe';
 
 const size = elementSize(myElement);
-size.getValue();               // {width, height}, measured now
+size.getValue(); // {width, height}, measured now
 const stop = size.onDirty(render);
 ```
 
@@ -30,34 +30,35 @@ disconnected on the last. There is no teardown step to forget, and a detached
 Reports a plain `{width, height}`.
 
 Plain on purpose. Dodo's change detection treats any object that is neither an
-array nor a plain object as *always changed*, so handing back a
+array nor a plain object as _always changed_, so handing back a
 `DOMRectReadOnly` would re-render on every observer callback. A plain object is
 shallow compared, so a resize that does not change the box renders nothing.
 
-Never `PENDING` — with no observation to hand it measures directly, so there is
+Always ready (`hasValue()` is true) — with no observation to hand it measures directly, so there is
 no "not known yet" case to write code for.
 
-| option   | meaning                                                            |
-| -------- | ------------------------------------------------------------------ |
-| `box`    | `content-box` (default), `border-box`, `device-pixel-content-box`   |
-| `window` | override the realm the observer is taken from                       |
+| option   | meaning                                                           |
+| -------- | ----------------------------------------------------------------- |
+| `box`    | `content-box` (default), `border-box`, `device-pixel-content-box` |
+| `window` | override the realm the observer is taken from                     |
 
 ### `elementVisibility(element, options?)`
 
-Reports a boolean, and is `PENDING` until the observer's first entry arrives.
+Reports a boolean. `hasValue()` is false until the observer's first entry arrives;
+`getValue()` returns undefined before that.
 
 That entry is asynchronous and there is no synchronous way to know beforehand.
 Reporting `false` would be a guess, and a wrong guess shows the wrong branch for
-a frame — so the honest answer is `PENDING`, paired with `watch`'s
+a frame — so the cell reports no value yet, paired with `watch`'s
 `placeholder`. Pass `{initial: false}` if you would rather take the guess.
 
-| option       | meaning                                                  |
-| ------------ | -------------------------------------------------------- |
-| `root`       | a selector resolved with `closest`, an element, or null   |
-| `rootMargin` | passed through to `IntersectionObserver`                  |
-| `threshold`  | passed through to `IntersectionObserver`                  |
-| `initial`    | value before the first entry, `PENDING` by default        |
-| `window`     | override the realm the observer is taken from             |
+| option       | meaning                                                 |
+| ------------ | ------------------------------------------------------- |
+| `root`       | a selector resolved with `closest`, an element, or null |
+| `rootMargin` | passed through to `IntersectionObserver`                |
+| `threshold`  | passed through to `IntersectionObserver`                |
+| `initial`    | value before the first entry; otherwise unavailable     |
+| `window`     | override the realm the observer is taken from           |
 
 `elementIntersection` is the same but reports `{visible, ratio}`.
 
@@ -66,13 +67,13 @@ a frame — so the honest answer is `PENDING`, paired with `watch`'s
 ```javascript
 import {withElementSize, withVisibility} from '@3sln/dodo/observe';
 
-withElementSize(size => canvas().props({width: size.width, height: size.height}))
+withElementSize(size => canvas().props({width: size.width, height: size.height}));
 
 withVisibility(visible => (visible ? chart() : skeleton()), {
   root: '.scroller',
   rootMargin: '200px',
   placeholder: () => skeleton(),
-})
+});
 ```
 
 Each is a thin wrapper: build the cell from the component's own DOM node, then
@@ -97,7 +98,7 @@ observer reports anything useful for an element with no box.
   the container, not from a wrapper with no geometry. `nearestLaidOutElement` is
   exported if you need the same walk yourself; it crosses shadow boundaries.
 - **`withVisibility` gives its own node a box** — `display: block` by default —
-  and observes that. Here you are asking "is *this* content on screen", and an
+  and observes that. Here you are asking "is _this_ content on screen", and an
   ancestor's visibility would be the wrong answer for, say, one row of a long
   list. Pass a different `display` if `block` disturbs your layout, or `null` to
   walk up like `withElementSize` does.
@@ -138,3 +139,6 @@ const {withElementSize, withVisibility} = observe({
   reactive: reactive(userSettings),
 });
 ```
+
+Supplying `{initial: undefined}` explicitly marks an intersection cell ready.
+Disconnecting resets both its value and readiness to the configured initial state.
